@@ -10,19 +10,19 @@ const translations = {
         "typewriter-3": "SPÉCIALISTE AUTOMATION", "typewriter-4": "DÉVELOPPEUR WEB",
         "view-project-btn": "Voir le Projet Actuel",
         "system-init": "INITIALISATION SYSTÈME", "loading-assets": "Chargement des ressources...", "access-terminal": "ACCÉDER AU TERMINAL",
-        "current-section": "PROJET ACTUEL", "current-title": "Moteur de Logique d'Événements Automatisé",
+        "current-section": "PROJET ACTUEL", "current-title": "Moteur de Logique d'Événements Automatisés",
         "current-subtitle": "Cible: \"Great Kraken Farm\" // Environnement: GPO",
         "current-desc-1": "Actuellement en développement d'un script d'automation haute performance conçu pour des cycles d'événements complexes dans des environnements virtualisés. Ce système utilise la <strong style=\"color:var(--secondary)\">vision par ordinateur</strong> pour détecter les changements d'état en temps réel avec une latence inférieure à 50ms.",
         "current-desc-2": "L'architecture implémente une machine d'état fini pour gérer les flux d'exceptions (déconnexions, interférences) en assurant 99,9% de disponibilité sans intervention utilisateur.",
         "visual-feed-offline": "[FLUX VIDÉO HORS LIGNE]", "system-active": "SYSTÈME ACTIF", "hover-engage": "Survolez pour engager",
         "about-section": "À PROPOS", "about-title": "Informations Personnelles",
-        "personal-info-name": "Nom:", "personal-info-dob": "Date de Naissance:", "personal-info-location": "Localisation:", "personal-info-email": "Email:", "personal-info-phone": "Téléphone:",
+        "personal-info-name": "Nom:", "personal-info-dob": "Date de Naissance:", "personal-info-dob-value": "9 mars 2007", "personal-info-location": "Localisation:", "personal-info-email": "Email:", "personal-info-phone": "Téléphone:",
         "experience-section": "EXPÉRIENCE & ACTIVITÉS", "theater-title": "Théâtre & Arts Performants",
         "cie-castel": "Cie Castel Troupe (Depuis 2020)", "cie-castel-desc": "Participant régulier à des représentations théâtrales, développant une forte présence sur scène et des compétences oratoires.",
         "circus-arts": "Arts Circassiens (Depuis 2020)", "circus-arts-desc": "Formé à diverses disciplines circassiennes incluant l'acrobatie et le jonglage.",
         "music-dev": "Musique & Développement Personnel", "bagpipe": "Musicien Cornemuseux (Depuis 2021)", "bagpipe-desc": "Musicien cornemuseux autodidacte avec expérience régulière de pratique et de performance.",
         "academic-title": "Engagement Académique & Communautaire",
-        "fundraising": "Organisateur de Levée de Fonds (2021-2022)", "fundraising-desc": "Campagne réussie pour financer un voyage pour des personnes handicapées.",
+        "fundraising": "Organisateurs de Campagne de Collecte de Fonds (2021-2022)", "fundraising-desc": "Moi et les élèves du collectif du foyer avons organisé une campagne réussie pour financer un voyage pour des personnes handicapées.",
         "eloquence": "Concours d'Éloquence (2022)", "eloquence-desc": "3e place au niveau départemental pour les compétences d'expression orale.",
         "projects-section": "MES PROJETS",
         "counter-label": "PROJETS",
@@ -57,13 +57,13 @@ const translations = {
         "current-desc-2": "The architecture implements a finite state machine to handle exception flows (connection drops, player interference) ensuring 99.9% uptime without user intervention.",
         "visual-feed-offline": "[VISUAL FEED OFFLINE]", "system-active": "SYSTEM ACTIVE", "hover-engage": "Hover to engage",
         "about-section": "ABOUT", "about-title": "Personal Information",
-        "personal-info-name": "Name:", "personal-info-dob": "Date of Birth:", "personal-info-location": "Location:", "personal-info-email": "Email:", "personal-info-phone": "Phone:",
+        "personal-info-name": "Name:", "personal-info-dob": "Date of Birth:", "personal-info-dob-value": "March 9, 2007", "personal-info-location": "Location:", "personal-info-email": "Email:", "personal-info-phone": "Phone:",
         "experience-section": "EXPERIENCE & ACTIVITIES", "theater-title": "Theater & Performing Arts",
         "cie-castel": "Cie Castel Troupe (Since 2020)", "cie-castel-desc": "Regular participant in theater performances, developing strong public speaking skills, stage presence, and team cohesion.",
         "circus-arts": "Circus Arts (Since 2020)", "circus-arts-desc": "Trained in various circus disciplines including acrobatics and juggling.",
         "music-dev": "Music & Personal Development", "bagpipe": "Bagpipe Musician (Since 2021)", "bagpipe-desc": "Self-taught bagpipe player with regular practice and performance experience.",
         "academic-title": "Academic & Community Engagement",
-        "fundraising": "Fundraising Campaign Organizer (2021-2022)", "fundraising-desc": "Led a successful fundraising campaign to finance a trip for people with disabilities.",
+        "fundraising": "Fundraising Campaign Organizers (2021-2022)", "fundraising-desc": "With my fellow students from the student center collective, we successfully organized a fundraising campaign to finance a trip for people with disabilities.",
         "eloquence": "Eloquence Contest (2022)", "eloquence-desc": "Awarded 3rd place at the departmental level for public speaking skills.",
         "projects-section": "MY PROJECTS",
         "counter-label": "PROJECTS",
@@ -323,7 +323,7 @@ const projectData = {
             desc: { fr: 'TP complets en Kotlin (R201) : implémentation de diagrammes UML, héritage de classe, polymorphisme, tests unitaires JUnit et projets de gestion de personnages/objets.', en: 'Complete Kotlin TP (R201): UML diagram implementation, class inheritance, polymorphism, JUnit unit testing, and character/object management projects.' },
             features: {
                 fr: ['TP5 : Héritage et diagrammes UML', 'TP5 Exercice 1 : implémentation classes C, C1, C2 avec héritage', 'TP6 Exercice 1 : système Personnage/Magicien avec équipement et sorts', 'TP6 Exercice 2 : système de messagerie (Message, Signal, WhatsApp)', 'Inventaire et gestion d\'équipements (armes, armures)', 'Tests unitaires avec JUnit et tests UML', 'Diagrammes de classes UML', 'IntelliJ IDEA avec Gradle build system'],
-                en: ['TP5: Inheritance and UML diagrams', 'TP5 Exercise 1: Implementation of C, C1, C2 classes with inheritance', 'TP6 Exercise 1: Personnage/Magicien system with equipment and spells', 'TP6 Exercise 2: Messaging system (Message, Signal, WhatsApp)', 'Inventory and equipment management (weapons,armor)', 'Unit testing with JUnit and UML tests', 'UML class diagrams', 'IntelliJ IDEA with Gradle build system']
+                en: ['TP5: Inheritance and UML diagrams', 'TP5 Exercise 1: Implementation of C, C1, C2 classes with inheritance', 'TP6 Exercise 1: Personnage/Magicien system with equipment and spells', 'TP6 Exercise 2: Messaging system (Message, Signal, WhatsApp)', 'Inventory and equipment management (weapons, armor)', 'Unit testing with JUnit and UML tests', 'UML class diagrams', 'IntelliJ IDEA with Gradle build system'],
             },
             badges: ['Kotlin', 'OOP', 'UML', 'JUnit', 'Gradle']
         }
@@ -489,6 +489,7 @@ function updateLanguage(lang) {
             translations[lang]['typewriter-1'], translations[lang]['typewriter-2'],
             translations[lang]['typewriter-3'], translations[lang]['typewriter-4']
         ];
+        i = 0;
         
         const activeCat = document.querySelector('.proj-tab.active')?.dataset.cat || 'professional';
         initCarousel(activeCat, lang);
@@ -529,7 +530,7 @@ document.getElementById('start-btn').addEventListener('click', () => {
 
 
 
-let words = [translations.fr['typewriter-1'], translations.fr['typewriter-2'], translations.fr['typewriter-3'], translations.fr['typewriter-4']];
+window.words = [translations.fr['typewriter-1'], translations.fr['typewriter-2'], translations.fr['typewriter-3'], translations.fr['typewriter-4']];
 let i = 0;
 function typeWriter(text, n) {
     if (n < text.length) {
@@ -544,11 +545,11 @@ function eraseWriter(text, n) {
         document.getElementById("typewriter").innerHTML = text.substring(0, n) + '<span aria-hidden="true">|</span>';
         setTimeout(() => eraseWriter(text, n - 1), 50);
     } else {
-        i = (i + 1) % words.length;
-        setTimeout(() => typeWriter(words[i], 0), 500);
+        i = (i + 1) % window.words.length;
+        setTimeout(() => typeWriter(window.words[i], 0), 500);
     }
 }
-setTimeout(() => typeWriter(words[0], 0), 2000);
+setTimeout(() => typeWriter(window.words[0], 0), 2000);
 
 
 
