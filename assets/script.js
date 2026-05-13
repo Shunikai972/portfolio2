@@ -1,5 +1,5 @@
-
-
+(function () {
+'use strict';
 
 const translations = {
     fr: {
@@ -1135,3 +1135,4 @@ function animateMatrix() {
 animateMatrix();
 
 
+})();
