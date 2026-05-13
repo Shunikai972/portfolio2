@@ -428,8 +428,7 @@ nextBtn.addEventListener('click', () => goTo(currentIndex + 1));
 
 document.addEventListener('keydown', e => {
     const section = document.getElementById('projects');
-    const rect = section.getBoundingClientRect();
-    if (rect.top < window.innerHeight && rect.bottom > 0) {
+    if (section.classList.contains('is-active')) {
         if (e.key === 'ArrowLeft') goTo(currentIndex - 1);
         if (e.key === 'ArrowRight') goTo(currentIndex + 1);
     }
@@ -489,7 +488,7 @@ function updateLanguage(lang) {
             translations[lang]['typewriter-1'], translations[lang]['typewriter-2'],
             translations[lang]['typewriter-3'], translations[lang]['typewriter-4']
         ];
-        i = 0;
+        typewriterIndex = 0;
         
         const activeCat = document.querySelector('.proj-tab.active')?.dataset.cat || 'professional';
         initCarousel(activeCat, lang);
@@ -502,9 +501,396 @@ function updateLanguage(lang) {
 document.getElementById('lang-fr').addEventListener('click', () => updateLanguage('fr'));
 document.getElementById('lang-en').addEventListener('click', () => updateLanguage('en'));
 
+const videoBlobUrlCache = new Map();
+function getVideoObjectUrl(source) {
+    if (!window.fetch || !window.URL || !window.URL.createObjectURL) {
+        return Promise.resolve(source);
+    }
+
+    if (!videoBlobUrlCache.has(source)) {
+        videoBlobUrlCache.set(
+            source,
+            fetch(source, { cache: 'force-cache' })
+                .then((response) => {
+                    if (!response.ok) throw new Error(`Video load failed: ${source}`);
+                    return response.blob();
+                })
+                .then((blob) => URL.createObjectURL(blob))
+                .catch(() => source)
+        );
+    }
+
+    return videoBlobUrlCache.get(source);
+}
+
+function initScrollStory() {
+    const root = document.getElementById('scroll-experience');
+    const sections = Array.from(root?.querySelectorAll(':scope > section, :scope > footer') || []);
+    if (!root || !sections.length) return;
+
+    const navLinks = Array.from(document.querySelectorAll('.nav-links a[href^="#"]'));
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function setActiveSection(id) {
+        document.body.dataset.activePanel = id;
+        navLinks.forEach((link) => {
+            link.classList.toggle('active', link.getAttribute('href') === `#${id}`);
+        });
+        sections.forEach((section) => {
+            section.classList.toggle('is-active', section.id === id);
+        });
+    }
+
+    function revealTargets(section) {
+        return Array.from(section.querySelectorAll([
+            ':scope > .section-title',
+            ':scope > h1',
+            ':scope > .typewriter-box',
+            ':scope > .home-cta',
+            ':scope > .glass-panel',
+            ':scope > .proj-tabs',
+            ':scope > .carousel-counter',
+            ':scope > .carousel-outer',
+            ':scope > .footer-bubble-container',
+            ':scope > .socials',
+            ':scope > p'
+        ].join(', ')));
+    }
+
+    const backgroundRoot = document.getElementById('story-background');
+    const backgroundLayers = [];
+    const sequenceCanvas = backgroundRoot ? document.createElement('canvas') : null;
+    if (sequenceCanvas) {
+        sequenceCanvas.id = 'story-sequence-canvas';
+        sequenceCanvas.setAttribute('aria-hidden', 'true');
+        backgroundRoot.appendChild(sequenceCanvas);
+    }
+
+    function createVideoScrollSequence(canvas, source) {
+        const context = canvas.getContext('2d', { alpha: false, desynchronized: true });
+        const host = canvas.parentElement;
+        const video = document.createElement('video');
+        let dpr = 1;
+        let duration = 1;
+        let pendingTime = 0;
+        let seeking = false;
+        let drawRaf = 0;
+        let lastDrawnTime = -1;
+        let ready = false;
+
+        video.preload = 'auto';
+        video.muted = true;
+        video.playsInline = true;
+        video.setAttribute('muted', '');
+        video.setAttribute('playsinline', '');
+        video.disableRemotePlayback = true;
+
+        function resize() {
+            dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+            const width = Math.max(1, Math.floor(window.innerWidth * dpr));
+            const height = Math.max(1, Math.floor(window.innerHeight * dpr));
+
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+                requestDraw(true);
+            }
+        }
+
+        function drawCoverVideo() {
+            if (!video.videoWidth || !video.videoHeight) return;
+
+            const canvasWidth = canvas.width;
+            const canvasHeight = canvas.height;
+            const scale = Math.max(canvasWidth / video.videoWidth, canvasHeight / video.videoHeight);
+            const width = video.videoWidth * scale;
+            const height = video.videoHeight * scale;
+            const x = (canvasWidth - width) / 2;
+            const y = (canvasHeight - height) / 2;
+
+            context.fillStyle = '#000';
+            context.fillRect(0, 0, canvasWidth, canvasHeight);
+            context.imageSmoothingEnabled = true;
+            context.imageSmoothingQuality = 'medium';
+            context.drawImage(video, x, y, width, height);
+            lastDrawnTime = video.currentTime;
+            host?.classList.add('sequence-ready');
+        }
+
+        function requestDraw(force = false) {
+            if (!force && Math.abs(video.currentTime - lastDrawnTime) < 0.002) return;
+            if (drawRaf) return;
+
+            drawRaf = window.requestAnimationFrame(() => {
+                drawRaf = 0;
+                drawCoverVideo();
+            });
+        }
+
+        function seekTo(time) {
+            pendingTime = Math.max(0, Math.min(time, Math.max(0.001, duration - 0.001)));
+            if (!ready || !Number.isFinite(video.duration) || !video.duration) return;
+            if (seeking) return;
+
+            if (Math.abs(video.currentTime - pendingTime) < 1 / 120) {
+                requestDraw();
+                return;
+            }
+
+            seeking = true;
+            video.currentTime = pendingTime;
+        }
+
+        video.addEventListener('loadedmetadata', () => {
+            duration = video.duration || duration;
+            ready = true;
+            resize();
+            seekTo(pendingTime);
+        });
+
+        video.addEventListener('loadeddata', () => requestDraw(true));
+        video.addEventListener('canplay', () => requestDraw(true));
+        video.addEventListener('seeked', () => {
+            seeking = false;
+            requestDraw(true);
+            if (Math.abs(video.currentTime - pendingTime) >= 1 / 120) {
+                seekTo(pendingTime);
+            }
+        });
+
+        resize();
+        getVideoObjectUrl(source).then((videoSource) => {
+            video.src = videoSource;
+            video.load();
+        });
+
+        return {
+            resize,
+            renderProgress(progress) {
+                const safeProgress = Math.max(0, Math.min(1, progress || 0));
+                seekTo(safeProgress * duration);
+            }
+        };
+    }
+
+    const scrollSequence = sequenceCanvas
+        ? createVideoScrollSequence(sequenceCanvas, 'assets/scroll-sequence-1080p.mp4')
+        : null;
+
+    function setBackground(index, immediate = false) {
+        if (!backgroundLayers.length) return;
+        const safeIndex = Math.max(0, Math.min(index, backgroundLayers.length - 1));
+
+        if (window.gsap && !immediate) {
+            window.gsap.to(backgroundLayers, {
+                opacity: (layerIndex) => layerIndex === safeIndex ? 1 : 0,
+                scale: (layerIndex) => layerIndex === safeIndex ? 1.015 : 1.045,
+                duration: 0.55,
+                ease: 'power1.out',
+                overwrite: true
+            });
+            return;
+        }
+
+        backgroundLayers.forEach((layer, layerIndex) => {
+            layer.style.opacity = layerIndex === safeIndex ? '1' : '0';
+            layer.style.transform = `scale(${layerIndex === safeIndex ? 1.015 : 1.045})`;
+        });
+    }
+
+    document.body.classList.add('gsap-scrollytelling-ready');
+    sections.forEach((section) => {
+        section.classList.add('gsap-scene');
+        revealTargets(section).forEach((item) => item.classList.add('gsap-reveal'));
+    });
+    setBackground(0, true);
+    scrollSequence?.renderProgress(0);
+
+    if (!window.gsap || !window.ScrollTrigger || prefersReducedMotion) {
+        sections.forEach((section) => revealTargets(section).forEach((item) => {
+            item.style.opacity = '1';
+            item.style.transform = 'none';
+        }));
+        setActiveSection(sections[0].id);
+        return;
+    }
+
+    const { gsap } = window;
+    const { ScrollTrigger } = window;
+    gsap.registerPlugin(ScrollTrigger);
+    ScrollTrigger.defaults({ scrub: 0.65, invalidateOnRefresh: true });
+
+    let lenis = null;
+    if (window.Lenis) {
+        lenis = new window.Lenis({
+            lerp: 0.085,
+            smoothWheel: true,
+            wheelMultiplier: 0.82,
+            touchMultiplier: 1.05
+        });
+        window.lenis = lenis;
+        lenis.on('scroll', ScrollTrigger.update);
+        gsap.ticker.add((time) => lenis.raf(time * 1000));
+        gsap.ticker.lagSmoothing(0);
+    }
+
+    let sequenceUpdateRaf = 0;
+    let lastQueuedSequenceScrollY = null;
+    function updateScrollSequence() {
+        if (!scrollSequence) return;
+
+        const maxScroll = Math.max(1, ScrollTrigger.maxScroll(window));
+        scrollSequence.renderProgress(window.scrollY / maxScroll);
+    }
+
+    function queueScrollSequenceUpdate(force = false) {
+        const currentScrollY = window.scrollY;
+        if (!force && currentScrollY === lastQueuedSequenceScrollY) return;
+        lastQueuedSequenceScrollY = currentScrollY;
+
+        if (sequenceUpdateRaf) return;
+
+        sequenceUpdateRaf = window.requestAnimationFrame(() => {
+            sequenceUpdateRaf = 0;
+            updateScrollSequence();
+        });
+    }
+
+    if (scrollSequence) {
+        window.addEventListener('scroll', () => queueScrollSequenceUpdate(), { passive: true });
+        lenis?.on('scroll', () => queueScrollSequenceUpdate());
+        gsap.ticker.add(() => queueScrollSequenceUpdate());
+    }
+
+    sections.forEach((section, sectionIndex) => {
+        const targets = revealTargets(section);
+        gsap.set(targets, {
+            autoAlpha: sectionIndex === 0 ? 1 : 0,
+            y: sectionIndex === 0 ? 0 : 42,
+            scale: sectionIndex === 0 ? 1 : 0.985,
+            force3D: true
+        });
+
+        const sceneTimeline = gsap.timeline({
+            defaults: { ease: 'none' },
+            scrollTrigger: {
+                trigger: section,
+                start: sectionIndex === 0 ? 'top top' : 'top 84%',
+                end: sectionIndex === sections.length - 1 ? 'top 30%' : 'bottom 34%',
+                scrub: 0.55
+            }
+        });
+
+        if (sectionIndex === 0) {
+            sceneTimeline.to(targets, {
+                autoAlpha: 1,
+                y: 0,
+                scale: 1,
+                duration: 0.01,
+                stagger: 0
+            }, 0);
+        } else {
+            sceneTimeline.fromTo(targets, {
+                autoAlpha: 0,
+                y: 42,
+                scale: 0.985
+            }, {
+                autoAlpha: 1,
+                y: 0,
+                scale: 1,
+                duration: 0.28,
+                stagger: { amount: 0.08 },
+                overwrite: 'auto'
+            }, 0);
+        }
+
+        if (sectionIndex < sections.length - 1) {
+            sceneTimeline.to(targets, {
+                autoAlpha: 0.42,
+                y: -28,
+                scale: 0.99,
+                duration: 0.22,
+                stagger: { amount: 0.04 },
+                overwrite: 'auto'
+            }, 0.78);
+        }
+
+        ScrollTrigger.create({
+            trigger: section,
+            start: 'top center',
+            end: 'bottom center',
+            onEnter: () => {
+                setActiveSection(section.id);
+                setBackground(sectionIndex);
+            },
+            onEnterBack: () => {
+                setActiveSection(section.id);
+                setBackground(sectionIndex);
+            }
+        });
+
+        if (['home', 'current', 'about'].includes(section.id)) {
+            ScrollTrigger.create({
+                trigger: section,
+                start: 'top top',
+                end: '+=42%',
+                pin: true,
+                pinSpacing: true,
+                anticipatePin: 1
+            });
+        }
+    });
+
+    if (scrollSequence) {
+        ScrollTrigger.create({
+            start: 0,
+            end: () => ScrollTrigger.maxScroll(window),
+            onUpdate: () => queueScrollSequenceUpdate(),
+            onRefresh: () => queueScrollSequenceUpdate(true)
+        });
+        queueScrollSequenceUpdate(true);
+    }
+
+    function scrollToSection(id) {
+        const target = document.getElementById(id);
+        if (!target) return false;
+
+        if (lenis) {
+            lenis.scrollTo(target, { duration: 1.05, easing: (t) => 1 - Math.pow(1 - t, 3) });
+        } else {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        setActiveSection(id);
+        return true;
+    }
+
+    document.querySelectorAll('a[href^="#"]').forEach((link) => {
+        link.addEventListener('click', (event) => {
+            const id = link.getAttribute('href').slice(1);
+            if (scrollToSection(id)) {
+                event.preventDefault();
+                history.replaceState(null, '', `#${id}`);
+            }
+        });
+    });
+
+    window.addEventListener('resize', () => {
+        scrollSequence?.resize();
+        queueScrollSequenceUpdate(true);
+        ScrollTrigger.refresh();
+    });
+    window.addEventListener('load', () => ScrollTrigger.refresh());
+    setActiveSection(sections[0].id);
+
+    if (window.location.hash) {
+        window.setTimeout(() => scrollToSection(window.location.hash.slice(1)), 120);
+    }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
     updateLanguage(currentLanguage);
     initCarousel('professional', currentLanguage);
+    initScrollStory();
 });
 
 
@@ -514,24 +900,164 @@ const cursor = document.getElementById('cursor');
 document.addEventListener('mousemove', e => {
     cursor.style.left = e.clientX + 'px';
     cursor.style.top = e.clientY + 'px';
+    cursor.classList.add('visible');
 });
 document.querySelectorAll('a, button, .glass-panel, .proj-card, i').forEach(el => {
     el.addEventListener('mouseenter', () => cursor.classList.add('active'));
     el.addEventListener('mouseleave', () => cursor.classList.remove('active'));
 });
 
+function playVideoCanvasSequence(canvas, options) {
+    if (!canvas) return Promise.resolve();
+
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    const video = document.createElement('video');
+    const dpr = Math.min(window.devicePixelRatio || 1, options.maxPixelRatio || 1);
+    const endHold = options.endHold ?? 140;
+    let size = { cssWidth: 1, cssHeight: 1 };
+    let raf = 0;
+    let lastPercent = -1;
+
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute('muted', '');
+    video.setAttribute('playsinline', '');
+    video.disableRemotePlayback = true;
+
+    function resize() {
+        const rect = canvas.getBoundingClientRect();
+        const cssWidth = Math.max(1, Math.round(rect.width || window.innerWidth));
+        const cssHeight = Math.max(1, Math.round(rect.height || window.innerHeight));
+        const width = Math.round(cssWidth * dpr);
+        const height = Math.round(cssHeight * dpr);
+
+        if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+        }
+
+        size = { cssWidth, cssHeight };
+    }
+
+    function draw() {
+        if (!video.videoWidth || !video.videoHeight) return;
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, size.cssWidth, size.cssHeight);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'medium';
+
+        const scale = Math.max(size.cssWidth / video.videoWidth, size.cssHeight / video.videoHeight);
+        const drawWidth = video.videoWidth * scale;
+        const drawHeight = video.videoHeight * scale;
+        const drawX = (size.cssWidth - drawWidth) * 0.5;
+        const drawY = (size.cssHeight - drawHeight) * 0.5;
+        ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+    }
+
+    function reportProgress() {
+        if (typeof options.onProgress !== 'function') return;
+
+        const duration = video.duration || options.duration || 1;
+        const progress = Math.min(1, video.currentTime / duration);
+        const percent = Math.round(progress * 100);
+        if (percent === lastPercent) return;
+
+        lastPercent = percent;
+        options.onProgress(progress);
+    }
+
+    return new Promise((resolve) => {
+        function finish() {
+            draw();
+            reportProgress();
+            window.setTimeout(resolve, endHold);
+        }
+
+        function tick() {
+            draw();
+            reportProgress();
+
+            if (!video.ended) {
+                raf = window.requestAnimationFrame(tick);
+            }
+        }
+
+        function start() {
+            resize();
+            draw();
+            const playPromise = video.play();
+
+            if (playPromise && typeof playPromise.catch === 'function') {
+                playPromise.catch(() => {
+                    video.currentTime = video.duration || 0;
+                    finish();
+                });
+            }
+
+            raf = window.requestAnimationFrame(tick);
+        }
+
+        window.addEventListener('resize', resize, { passive: true });
+        video.addEventListener('loadedmetadata', resize, { once: true });
+        video.addEventListener('canplay', start, { once: true });
+        video.addEventListener('ended', () => {
+            if (raf) window.cancelAnimationFrame(raf);
+            finish();
+        }, { once: true });
+        video.addEventListener('error', () => {
+            if (raf) window.cancelAnimationFrame(raf);
+            resolve();
+        }, { once: true });
+        getVideoObjectUrl(options.src).then((videoSource) => {
+            video.src = videoSource;
+            video.load();
+        });
+    });
+}
 
 document.getElementById('start-btn').addEventListener('click', () => {
     const overlay = document.getElementById('intro-overlay');
-    overlay.style.opacity = '0';
-    setTimeout(() => { overlay.style.visibility = 'hidden'; }, 1000);
+    const button = document.getElementById('start-btn');
+    const loader = document.querySelector('[data-text-key="loading-assets"]');
+    const loadingLabels = currentLanguage === 'fr'
+        ? ['Handshake terminal', 'Flux visuel', 'Acceleration', 'Ouverture']
+        : ['Terminal handshake', 'Visual stream', 'Acceleration', 'Opening'];
+
+    button.disabled = true;
+    overlay.classList.add('is-loading', 'is-accelerating');
+    if (loader) {
+        loader.textContent = currentLanguage === 'fr' ? 'Demarrage terminal...' : 'Starting terminal...';
+    }
+
+    playVideoCanvasSequence(document.getElementById('loading-sequence-canvas'), {
+        src: 'assets/loading-1080p.mp4',
+        endHold: 140,
+        maxPixelRatio: 1,
+        onProgress: (progress) => {
+            if (!loader) return;
+            const percent = Math.round(progress * 100);
+            const labelIndex = Math.min(loadingLabels.length - 1, Math.floor(progress * loadingLabels.length));
+            loader.textContent = currentLanguage === 'fr'
+                ? `${loadingLabels[labelIndex]}... ${percent}%`
+                : `${loadingLabels[labelIndex]}... ${percent}%`;
+        }
+    }).then(() => {
+        overlay.classList.add('is-complete');
+        overlay.style.opacity = '0';
+        overlay.style.pointerEvents = 'none';
+        setTimeout(() => { overlay.style.visibility = 'hidden'; }, 520);
+    });
 });
 
 
 
 
 window.words = [translations.fr['typewriter-1'], translations.fr['typewriter-2'], translations.fr['typewriter-3'], translations.fr['typewriter-4']];
-let i = 0;
+let typewriterIndex = 0;
 function typeWriter(text, n) {
     if (n < text.length) {
         document.getElementById("typewriter").innerHTML = text.substring(0, n+1) + '<span aria-hidden="true">|</span>';
@@ -545,8 +1071,8 @@ function eraseWriter(text, n) {
         document.getElementById("typewriter").innerHTML = text.substring(0, n) + '<span aria-hidden="true">|</span>';
         setTimeout(() => eraseWriter(text, n - 1), 50);
     } else {
-        i = (i + 1) % window.words.length;
-        setTimeout(() => typeWriter(window.words[i], 0), 500);
+        typewriterIndex = (typewriterIndex + 1) % window.words.length;
+        setTimeout(() => typeWriter(window.words[typewriterIndex], 0), 500);
     }
 }
 setTimeout(() => typeWriter(window.words[0], 0), 2000);
@@ -558,7 +1084,10 @@ const canvas = document.getElementById('matrix-canvas');
 const ctx = canvas.getContext('2d');
 let width, height;
 const mouse = { x: -1000, y: -1000 };
-function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
+function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+}
 window.addEventListener('resize', resize); resize();
 window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 
