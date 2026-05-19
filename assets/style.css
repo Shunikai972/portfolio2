@@ -12,11 +12,13 @@
     --glass-shine: rgba(255, 255, 255, 0.05);
     --font-main: 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif;
     --font-mono: 'Courier New', Courier, monospace;
+    --app-width: 100vw;
+    --app-height: 100vh;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; cursor: auto !important; }
 html { scroll-behavior: auto; overflow-x: hidden; }
-body { background-color: var(--bg-deep); color: var(--text-main); font-family: var(--font-main); overflow-x: hidden; min-height: 100vh; cursor: auto !important; }
+body { background-color: var(--bg-deep); color: var(--text-main); font-family: var(--font-main); overflow-x: hidden; min-height: var(--app-height); cursor: auto !important; }
 
 #cursor {
     position: fixed; width: 20px; height: 20px;
@@ -29,6 +31,18 @@ body { background-color: var(--bg-deep); color: var(--text-main); font-family: v
 }
 #cursor.visible { opacity: 1; }
 #cursor.active { width: 50px; height: 50px; background: rgba(0, 247, 255, 0.1); border-color: var(--primary); box-shadow: 0 0 20px var(--primary); }
+body.is-touch-layout #cursor {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+}
+@media (hover: none), (pointer: coarse), (max-width: 768px) {
+    #cursor {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+    }
+}
 
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: var(--bg-deep); }
@@ -461,7 +475,8 @@ nav {
     display: flex; justify-content: space-between; align-items: center;
     background: rgba(5, 5, 5, 0.6); backdrop-filter: blur(15px);
     border-bottom: 1px solid rgba(255,255,255,0.05); z-index: 1000;
-    transform: translateY(-100%); animation: slideDown 0.8s forwards 1.2s;
+    transform: translateY(0);
+    animation: none;
     flex-wrap: wrap;
     gap: 15px;
 }
@@ -485,7 +500,7 @@ body.switching section, body.switching nav { animation: fadeOutContent 0.4s ease
 body.switched section, body.switched nav { animation: fadeInContent 0.4s ease forwards; }
 
 
-section { min-height: 100vh; padding: 60px 10% 40px; display: flex; flex-direction: column; justify-content: center; position: relative; }
+section { min-height: var(--app-height); padding: 60px 10% 40px; display: flex; flex-direction: column; justify-content: center; position: relative; }
 .section-title { font-size: 3rem; margin-bottom: 40px; position: relative; display: inline-block; z-index: 2; }
 .section-title span { color: var(--primary); text-shadow: 0 0 15px var(--primary-dim); }
 .section-title::after { content: 'SECTION_ID'; position: absolute; top: -30px; left: 0; font-size: 5rem; font-weight: 900; color: rgba(255,255,255,0.02); z-index: -1; white-space: nowrap; }
@@ -924,7 +939,7 @@ footer p {
     .carousel-outer { padding: 0 30px 60px; }
     .carousel-arrow { width: 32px; height: 32px; font-size: 0.7rem; }
     .enter-btn { padding: 10px 20px; font-size: 0.9rem; letter-spacing: 2px; }
-    section { padding: 40px 3% 20px; min-height: auto; }
+    section { padding: 72px 3% 36px; min-height: var(--app-height); }
     .section-title { font-size: 1.5rem; margin-bottom: 20px; }
     .glass-panel { padding: 15px; }
     .proj-card { border-radius: 12px; }
@@ -958,8 +973,8 @@ html.lenis body {
 #matrix-canvas {
     position: fixed;
     inset: 0;
-    width: 100vw;
-    height: 100vh;
+    width: var(--app-width);
+    height: var(--app-height);
     pointer-events: none;
 }
 
@@ -967,6 +982,7 @@ html.lenis body {
     z-index: 0;
     overflow: hidden;
     background: #000;
+    contain: paint;
 }
 
 .story-bg-layer {
@@ -985,6 +1001,7 @@ html.lenis body {
     inset: 0;
     width: 100%;
     height: 100%;
+    display: block;
     z-index: 2;
     opacity: 0;
     transform: translateZ(0);
@@ -993,8 +1010,36 @@ html.lenis body {
     transition: opacity 220ms ease;
 }
 
+#story-sequence-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+    object-fit: cover;
+    z-index: 3;
+    opacity: 0;
+    transform: translateZ(0);
+    filter: saturate(1.18) contrast(1.08) brightness(0.92);
+    transition: opacity 240ms ease;
+}
+
 #story-background.sequence-ready #story-sequence-canvas {
     opacity: 1;
+}
+
+#story-background.mobile-ambient-ready #story-sequence-canvas {
+    opacity: 0;
+}
+
+#story-background.mobile-ambient-ready #story-sequence-video {
+    opacity: 1;
+}
+
+@media (max-width: 768px), (pointer: coarse) {
+    #story-sequence-video {
+        display: block;
+    }
 }
 
 #story-background.sequence-ready .story-bg-layer {
@@ -1019,10 +1064,15 @@ body::before {
         linear-gradient(90deg, rgba(0,0,0,0.54), rgba(0,0,0,0.1) 44%, rgba(0,0,0,0.5));
 }
 
-nav,
 #scroll-experience {
     position: relative;
     z-index: 5;
+}
+
+.gsap-scrollytelling-ready #scroll-experience {
+    height: var(--app-height);
+    min-height: var(--app-height);
+    overflow: hidden;
 }
 
 #scroll-experience > section,
@@ -1032,8 +1082,27 @@ nav,
     transform: translateZ(0);
 }
 
+.gsap-scrollytelling-ready #scroll-experience > section,
+.gsap-scrollytelling-ready #scroll-experience > footer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: var(--app-height);
+    min-height: var(--app-height);
+    margin: 0;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.gsap-scrollytelling-ready #scroll-experience > section.is-active,
+.gsap-scrollytelling-ready #scroll-experience > footer.is-active {
+    pointer-events: auto;
+}
+
 .gsap-scrollytelling-ready footer#contact {
-    min-height: 100vh;
+    min-height: var(--app-height);
     margin-top: 0;
     display: flex;
     flex-direction: column;
@@ -1079,15 +1148,318 @@ nav,
     background: var(--secondary);
 }
 
+.gsap-scrollytelling-ready #current,
+.gsap-scrollytelling-ready #projects,
+.gsap-scrollytelling-ready #skills {
+    padding-top: clamp(82px, 10vh, 112px);
+    padding-bottom: clamp(22px, 4vh, 44px);
+}
+
+.gsap-scrollytelling-ready #current .section-title,
+.gsap-scrollytelling-ready #projects .section-title,
+.gsap-scrollytelling-ready #skills .section-title {
+    margin-bottom: clamp(12px, 2vh, 24px);
+}
+
+.gsap-scrollytelling-ready #current .project-hero {
+    width: min(1180px, 100%);
+    margin: 0 auto;
+    gap: clamp(22px, 4vw, 48px);
+}
+
+.gsap-scrollytelling-ready #current .project-image-container {
+    height: clamp(240px, 38vh, 350px);
+}
+
+.gsap-scrollytelling-ready #current .project-details h2 {
+    font-size: clamp(1.5rem, 2.8vw, 2.2rem) !important;
+}
+
+.gsap-scrollytelling-ready #projects {
+    justify-content: center;
+}
+
+.gsap-scrollytelling-ready #projects .proj-tabs {
+    margin-bottom: clamp(10px, 1.8vh, 18px);
+}
+
+.gsap-scrollytelling-ready #projects .carousel-counter {
+    margin-bottom: clamp(8px, 1.4vh, 14px);
+}
+
+.gsap-scrollytelling-ready #projects .carousel-outer {
+    width: min(1180px, 100%);
+    margin: 0 auto;
+    padding: 0 clamp(42px, 5vw, 72px) clamp(42px, 5vh, 58px);
+}
+
+.gsap-scrollytelling-ready #projects .proj-card-header {
+    padding: clamp(16px, 2.2vh, 26px) clamp(18px, 2.2vw, 28px) 0;
+}
+
+.gsap-scrollytelling-ready #projects .proj-card-body {
+    padding: clamp(10px, 1.5vh, 16px) clamp(18px, 2.2vw, 28px) clamp(16px, 2.2vh, 26px);
+}
+
+.gsap-scrollytelling-ready #projects .proj-card-title {
+    font-size: clamp(1.05rem, 1.55vw, 1.3rem);
+    margin-bottom: clamp(6px, 1vh, 10px);
+}
+
+.gsap-scrollytelling-ready #projects .proj-card-desc {
+    line-height: 1.55;
+    margin-bottom: clamp(10px, 1.7vh, 16px);
+}
+
+.gsap-scrollytelling-ready #projects .proj-features {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px 18px;
+    margin-bottom: clamp(12px, 1.8vh, 18px);
+}
+
+.gsap-scrollytelling-ready #projects .proj-features li {
+    font-size: clamp(0.74rem, 0.9vw, 0.84rem);
+    line-height: 1.35;
+}
+
+.gsap-scrollytelling-ready #projects .proj-card-badges {
+    gap: 6px;
+}
+
 .gsap-scrollytelling-ready #experience,
 .gsap-scrollytelling-ready #skills {
     justify-content: flex-start;
     gap: clamp(14px, 2vh, 22px);
 }
 
+.gsap-scrollytelling-ready #experience {
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+    grid-template-areas:
+        "experience-title experience-title"
+        "experience-theater experience-music"
+        "experience-theater experience-academic";
+    align-content: center;
+    gap: clamp(10px, 1.8vh, 18px);
+    padding-top: clamp(82px, 10vh, 112px);
+    padding-bottom: clamp(22px, 4vh, 44px);
+}
+
+.gsap-scrollytelling-ready #experience .section-title {
+    grid-area: experience-title;
+    margin-bottom: 0;
+}
+
+.gsap-scrollytelling-ready #experience > .glass-panel {
+    min-width: 0;
+    margin: 0 !important;
+    padding: clamp(14px, 1.9vh, 24px);
+}
+
+.gsap-scrollytelling-ready #experience > .glass-panel:nth-of-type(2) { grid-area: experience-theater; }
+.gsap-scrollytelling-ready #experience > .glass-panel:nth-of-type(3) { grid-area: experience-music; }
+.gsap-scrollytelling-ready #experience > .glass-panel:nth-of-type(4) { grid-area: experience-academic; }
+
+.gsap-scrollytelling-ready #experience .glass-panel h2 {
+    font-size: clamp(1rem, 1.35vw, 1.35rem) !important;
+    margin-bottom: clamp(8px, 1.2vh, 14px) !important;
+}
+
+.gsap-scrollytelling-ready #experience .experience-item {
+    margin-bottom: clamp(8px, 1.3vh, 14px);
+}
+
+.gsap-scrollytelling-ready #experience .experience-item:last-child {
+    margin-bottom: 0;
+}
+
+.gsap-scrollytelling-ready #experience .experience-item h3 {
+    font-size: clamp(0.9rem, 1.15vw, 1.14rem) !important;
+    margin-bottom: 5px;
+    line-height: 1.22;
+}
+
+.gsap-scrollytelling-ready #experience .experience-item p {
+    font-size: clamp(0.74rem, 0.95vw, 0.92rem) !important;
+    line-height: 1.36;
+}
+
 .gsap-scrollytelling-ready #experience .glass-panel,
 .gsap-scrollytelling-ready #skills .glass-panel {
     margin-bottom: clamp(12px, 1.8vh, 22px);
+}
+
+.gsap-scrollytelling-ready #skills {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas:
+        "skills-title skills-title skills-title"
+        "skills-programming skills-programming skills-programming"
+        "skills-devops skills-languages skills-soft";
+    align-content: center;
+    gap: clamp(10px, 1.4vh, 16px);
+}
+
+.gsap-scrollytelling-ready #skills .section-title {
+    grid-area: skills-title;
+    margin-bottom: 0;
+}
+
+.gsap-scrollytelling-ready #skills > .glass-panel {
+    min-width: 0;
+    margin: 0 !important;
+    padding: clamp(12px, 1.6vh, 20px);
+}
+
+.gsap-scrollytelling-ready #skills > .glass-panel:nth-of-type(2) { grid-area: skills-programming; }
+.gsap-scrollytelling-ready #skills > .glass-panel:nth-of-type(3) { grid-area: skills-devops; }
+.gsap-scrollytelling-ready #skills > .glass-panel:nth-of-type(4) { grid-area: skills-languages; }
+.gsap-scrollytelling-ready #skills > .glass-panel:nth-of-type(5) { grid-area: skills-soft; }
+
+.gsap-scrollytelling-ready #skills > .glass-panel > h2 {
+    font-size: clamp(1rem, 1.35vw, 1.35rem) !important;
+    margin-bottom: clamp(8px, 1.2vh, 14px) !important;
+}
+
+.gsap-scrollytelling-ready #skills > .glass-panel > div[style*="display:grid"] {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
+    gap: clamp(8px, 1vw, 12px) !important;
+}
+
+.gsap-scrollytelling-ready #skills > .glass-panel:nth-of-type(2) > div[style*="display:grid"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.gsap-scrollytelling-ready #skills > .glass-panel:nth-of-type(3) > div[style*="display:grid"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.gsap-scrollytelling-ready #skills .glass-panel .glass-panel {
+    padding: clamp(10px, 1.25vh, 14px) !important;
+    margin: 0 !important;
+}
+
+.gsap-scrollytelling-ready #skills .glass-panel h3 {
+    font-size: clamp(0.95rem, 1.2vw, 1.18rem) !important;
+    margin-bottom: 6px;
+}
+
+.gsap-scrollytelling-ready #skills .glass-panel h4 {
+    font-size: clamp(0.86rem, 1vw, 1rem) !important;
+    margin-bottom: 4px;
+}
+
+.gsap-scrollytelling-ready #skills .glass-panel p {
+    font-size: clamp(0.72rem, 0.9vw, 0.88rem) !important;
+    line-height: 1.35;
+}
+
+.gsap-scrollytelling-ready #skills .language-item {
+    margin-top: clamp(8px, 1vh, 12px) !important;
+}
+
+@media (max-width: 900px) {
+    .gsap-scrollytelling-ready #experience {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-areas:
+            "experience-title experience-title"
+            "experience-theater experience-theater"
+            "experience-music experience-academic";
+        align-content: start;
+        overflow-y: auto;
+    }
+
+    .gsap-scrollytelling-ready #skills {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-areas:
+            "skills-title skills-title"
+            "skills-programming skills-programming"
+            "skills-devops skills-languages"
+            "skills-soft skills-soft";
+        align-content: start;
+        overflow-y: auto;
+    }
+
+    .gsap-scrollytelling-ready #skills > .glass-panel:nth-of-type(2) > div[style*="display:grid"] {
+        grid-template-columns: repeat(3, minmax(120px, 1fr)) !important;
+    }
+}
+
+@media (max-width: 600px) {
+    #story-sequence-video {
+        display: block;
+    }
+
+    #story-background.mobile-ambient-ready.sequence-ready .story-bg-layer {
+        opacity: 0 !important;
+    }
+
+    .gsap-scrollytelling-ready #current,
+    .gsap-scrollytelling-ready #projects,
+    .gsap-scrollytelling-ready #experience,
+    .gsap-scrollytelling-ready #skills {
+        padding-top: 72px;
+    }
+
+    .gsap-scrollytelling-ready #experience {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "experience-title"
+            "experience-theater"
+            "experience-music"
+            "experience-academic";
+        gap: 8px;
+        overflow-y: auto;
+        padding-bottom: 20px;
+    }
+
+    .gsap-scrollytelling-ready #experience .section-title {
+        margin-bottom: 0;
+    }
+
+    .gsap-scrollytelling-ready #experience > .glass-panel {
+        padding: 12px !important;
+    }
+
+    .gsap-scrollytelling-ready #experience .glass-panel h2 {
+        font-size: 0.95rem !important;
+        margin-bottom: 7px !important;
+    }
+
+    .gsap-scrollytelling-ready #experience .experience-item {
+        margin-bottom: 7px;
+    }
+
+    .gsap-scrollytelling-ready #experience .experience-item h3 {
+        font-size: 0.84rem !important;
+        margin-bottom: 3px;
+    }
+
+    .gsap-scrollytelling-ready #experience .experience-item p {
+        font-size: 0.72rem !important;
+        line-height: 1.28;
+    }
+
+    .gsap-scrollytelling-ready #projects .proj-features {
+        grid-template-columns: 1fr;
+    }
+
+    .gsap-scrollytelling-ready #skills {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "skills-title"
+            "skills-programming"
+            "skills-devops"
+            "skills-languages"
+            "skills-soft";
+        overflow-y: auto;
+    }
+
+    .gsap-scrollytelling-ready #skills > .glass-panel:nth-of-type(2) > div[style*="display:grid"],
+    .gsap-scrollytelling-ready #skills > .glass-panel:nth-of-type(3) > div[style*="display:grid"] {
+        grid-template-columns: 1fr !important;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

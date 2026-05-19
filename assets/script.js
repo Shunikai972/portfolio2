@@ -460,10 +460,15 @@ document.querySelectorAll('.proj-tab').forEach(tab => {
     });
 });
 
+let carouselViewportWidth = Math.round(window.innerWidth || document.documentElement.clientWidth || 0);
 window.addEventListener('resize', () => {
+    const nextViewportWidth = Math.round(window.innerWidth || document.documentElement.clientWidth || 0);
+    if (Math.abs(nextViewportWidth - carouselViewportWidth) < 2) return;
+
+    carouselViewportWidth = nextViewportWidth;
     buildDots(projectData[currentCat].length);
     setTimeout(() => updateUI(), 50);
-});
+}, { passive: true });
 
 
 
@@ -523,6 +528,74 @@ function getVideoObjectUrl(source) {
     return videoBlobUrlCache.get(source);
 }
 
+const finePointerMedia = window.matchMedia('(hover: hover) and (pointer: fine)');
+const mobileViewportMedia = window.matchMedia('(max-width: 768px), (pointer: coarse)');
+let viewportVarsRaf = 0;
+let pendingViewportForce = false;
+let appViewportWidth = Math.max(1, Math.round(window.innerWidth || document.documentElement.clientWidth || 1));
+let appViewportHeight = Math.max(1, Math.round(window.innerHeight || document.documentElement.clientHeight || 1));
+
+function readLayoutViewport() {
+    return {
+        width: Math.max(1, Math.round(window.innerWidth || document.documentElement.clientWidth || 1)),
+        height: Math.max(1, Math.round(window.innerHeight || document.documentElement.clientHeight || 1))
+    };
+}
+
+function shouldAcceptViewportSize(nextViewport, force = false) {
+    if (force) return true;
+
+    const widthDelta = Math.abs(nextViewport.width - appViewportWidth);
+    const heightDelta = Math.abs(nextViewport.height - appViewportHeight);
+    if (!mobileViewportMedia.matches) return widthDelta > 2 || heightDelta > 2;
+
+    const majorMobileHeightChange = Math.max(120, appViewportHeight * 0.18);
+    return widthDelta > 2 || heightDelta > majorMobileHeightChange;
+}
+
+function getViewportWidth() {
+    return appViewportWidth;
+}
+
+function getViewportHeight() {
+    return appViewportHeight;
+}
+
+function commitViewportVars() {
+    document.documentElement.style.setProperty('--app-width', `${appViewportWidth}px`);
+    document.documentElement.style.setProperty('--app-height', `${appViewportHeight}px`);
+    document.body?.classList.toggle('is-touch-layout', !finePointerMedia.matches);
+    document.body?.classList.toggle('is-mobile-layout', mobileViewportMedia.matches);
+}
+
+function updateViewportVars(force = false) {
+    viewportVarsRaf = 0;
+    const nextViewport = readLayoutViewport();
+    const accepted = shouldAcceptViewportSize(nextViewport, force);
+
+    if (accepted) {
+        appViewportWidth = nextViewport.width;
+        appViewportHeight = nextViewport.height;
+    }
+
+    commitViewportVars();
+    return accepted;
+}
+
+function queueViewportVarsUpdate(force = false) {
+    pendingViewportForce = pendingViewportForce || force;
+    if (viewportVarsRaf) return;
+    viewportVarsRaf = window.requestAnimationFrame(() => {
+        const forceUpdate = pendingViewportForce;
+        pendingViewportForce = false;
+        updateViewportVars(forceUpdate);
+    });
+}
+
+updateViewportVars(true);
+window.addEventListener('resize', queueViewportVarsUpdate, { passive: true });
+window.addEventListener('orientationchange', () => window.setTimeout(() => queueViewportVarsUpdate(true), 180), { passive: true });
+
 function initScrollStory() {
     const root = document.getElementById('scroll-experience');
     const sections = Array.from(root?.querySelectorAll(':scope > section, :scope > footer') || []);
@@ -530,6 +603,7 @@ function initScrollStory() {
 
     const navLinks = Array.from(document.querySelectorAll('.nav-links a[href^="#"]'));
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isMobileViewport = mobileViewportMedia.matches;
 
     function setActiveSection(id) {
         document.body.dataset.activePanel = id;
@@ -538,6 +612,7 @@ function initScrollStory() {
         });
         sections.forEach((section) => {
             section.classList.toggle('is-active', section.id === id);
+            section.style.pointerEvents = section.id === id ? 'auto' : 'none';
         });
     }
 
@@ -566,6 +641,44 @@ function initScrollStory() {
         backgroundRoot.appendChild(sequenceCanvas);
     }
 
+    let mobileAmbientVideo = null;
+    if (backgroundRoot && isMobileViewport && !prefersReducedMotion) {
+        mobileAmbientVideo = document.createElement('video');
+        mobileAmbientVideo.id = 'story-sequence-video';
+        mobileAmbientVideo.setAttribute('aria-hidden', 'true');
+        mobileAmbientVideo.muted = true;
+        mobileAmbientVideo.loop = true;
+        mobileAmbientVideo.playsInline = true;
+        mobileAmbientVideo.preload = 'auto';
+        mobileAmbientVideo.playbackRate = 0.82;
+        mobileAmbientVideo.disableRemotePlayback = true;
+        mobileAmbientVideo.setAttribute('muted', '');
+        mobileAmbientVideo.setAttribute('playsinline', '');
+        backgroundRoot.appendChild(mobileAmbientVideo);
+
+        const playMobileAmbientVideo = () => {
+            if (!mobileAmbientVideo) return;
+            const playPromise = mobileAmbientVideo.play();
+            if (playPromise && typeof playPromise.catch === 'function') {
+                playPromise.catch(() => {});
+            }
+        };
+
+        mobileAmbientVideo.addEventListener('canplay', () => {
+            backgroundRoot.classList.add('mobile-ambient-ready', 'sequence-ready');
+            playMobileAmbientVideo();
+        }, { once: true });
+
+        document.getElementById('start-btn')?.addEventListener('click', playMobileAmbientVideo, { once: true });
+        window.addEventListener('touchstart', playMobileAmbientVideo, { once: true, passive: true });
+
+        getVideoObjectUrl('assets/scroll-sequence-1080p.mp4').then((videoSource) => {
+            if (!mobileAmbientVideo) return;
+            mobileAmbientVideo.src = videoSource;
+            mobileAmbientVideo.load();
+        });
+    }
+
     function createVideoScrollSequence(canvas, source) {
         const context = canvas.getContext('2d', { alpha: false, desynchronized: true });
         const host = canvas.parentElement;
@@ -587,8 +700,8 @@ function initScrollStory() {
 
         function resize() {
             dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-            const width = Math.max(1, Math.floor(window.innerWidth * dpr));
-            const height = Math.max(1, Math.floor(window.innerHeight * dpr));
+            const width = Math.max(1, Math.floor(getViewportWidth() * dpr));
+            const height = Math.max(1, Math.floor(getViewportHeight() * dpr));
 
             if (canvas.width !== width || canvas.height !== height) {
                 canvas.width = width;
@@ -673,7 +786,7 @@ function initScrollStory() {
         };
     }
 
-    const scrollSequence = sequenceCanvas
+    const scrollSequence = sequenceCanvas && !isMobileViewport
         ? createVideoScrollSequence(sequenceCanvas, 'assets/scroll-sequence-1080p.mp4')
         : null;
 
@@ -719,6 +832,9 @@ function initScrollStory() {
     const { ScrollTrigger } = window;
     gsap.registerPlugin(ScrollTrigger);
     ScrollTrigger.defaults({ scrub: 0.65, invalidateOnRefresh: true });
+    if (isMobileViewport && typeof ScrollTrigger.config === 'function') {
+        ScrollTrigger.config({ ignoreMobileResize: true });
+    }
 
     let lenis = null;
     if (window.Lenis) {
@@ -734,10 +850,18 @@ function initScrollStory() {
         gsap.ticker.lagSmoothing(0);
     }
 
+    let storyTrigger = null;
     let sequenceUpdateRaf = 0;
     let lastQueuedSequenceScrollY = null;
     function updateScrollSequence() {
         if (!scrollSequence) return;
+
+        if (storyTrigger) {
+            const distance = Math.max(1, storyTrigger.end - storyTrigger.start);
+            const progress = Math.max(0, Math.min(1, (window.scrollY - storyTrigger.start) / distance));
+            scrollSequence.renderProgress(progress);
+            return;
+        }
 
         const maxScroll = Math.max(1, ScrollTrigger.maxScroll(window));
         scrollSequence.renderProgress(window.scrollY / maxScroll);
@@ -762,105 +886,270 @@ function initScrollStory() {
         gsap.ticker.add(() => queueScrollSequenceUpdate());
     }
 
-    sections.forEach((section, sectionIndex) => {
-        const targets = revealTargets(section);
-        gsap.set(targets, {
-            autoAlpha: sectionIndex === 0 ? 1 : 0,
-            y: sectionIndex === 0 ? 0 : 42,
-            scale: sectionIndex === 0 ? 1 : 0.985,
-            force3D: true
-        });
+    function uniqueElements(items) {
+        return [...new Set(items.filter(Boolean))];
+    }
 
-        const sceneTimeline = gsap.timeline({
-            defaults: { ease: 'none' },
-            scrollTrigger: {
-                trigger: section,
-                start: sectionIndex === 0 ? 'top top' : 'top 84%',
-                end: sectionIndex === sections.length - 1 ? 'top 30%' : 'bottom 34%',
-                scrub: 0.55
-            }
-        });
+    function sceneParts(section) {
+        const q = (selector) => Array.from(section.querySelectorAll(selector));
+        const direct = revealTargets(section);
 
-        if (sectionIndex === 0) {
-            sceneTimeline.to(targets, {
-                autoAlpha: 1,
-                y: 0,
-                scale: 1,
-                duration: 0.01,
-                stagger: 0
-            }, 0);
+        if (section.id === 'home') {
+            return {
+                title: q('.hero-glitch'),
+                primary: q('.typewriter-box'),
+                secondary: q('.home-cta'),
+                all: uniqueElements([...direct, ...q('.hero-glitch, .typewriter-box, .home-cta')])
+            };
+        }
+
+        if (section.id === 'current') {
+            return {
+                title: q('.section-title'),
+                frame: q('.project-hero'),
+                primary: q('.project-details h2, .project-details h4, .project-details p'),
+                secondary: q('.tech-badge'),
+                accent: q('.project-image-container, .status-indicator, .project-img-placeholder'),
+                all: uniqueElements([...direct, ...q('.project-hero, .project-details h2, .project-details h4, .project-details p, .tech-badge, .project-image-container')])
+            };
+        }
+
+        if (section.id === 'about') {
+            return {
+                title: q('.section-title'),
+                primary: q('.glass-panel'),
+                secondary: q('.glass-panel h2, .glass-panel p'),
+                all: uniqueElements([...direct, ...q('.glass-panel, .glass-panel h2, .glass-panel p')])
+            };
+        }
+
+        if (section.id === 'experience') {
+            return {
+                title: q('.section-title'),
+                primary: q(':scope > .glass-panel'),
+                secondary: q('.experience-item, .glass-panel h2'),
+                all: uniqueElements([...direct, ...q(':scope > .glass-panel, .experience-item, .glass-panel h2')])
+            };
+        }
+
+        if (section.id === 'projects') {
+            return {
+                title: q('.section-title'),
+                frame: q('.proj-tabs, .carousel-counter, .carousel-outer'),
+                primary: q('.proj-tab'),
+                secondary: q('.carousel-counter span, .carousel-counter-sep'),
+                accent: q('.carousel-outer'),
+                all: uniqueElements([...direct, ...q('.proj-tab, .carousel-counter span, .carousel-counter-sep, .carousel-outer')])
+            };
+        }
+
+        if (section.id === 'skills') {
+            return {
+                title: q('.section-title'),
+                primary: q(':scope > .glass-panel'),
+                secondary: q(':scope > .glass-panel .glass-panel, .language-item, .glass-panel h2'),
+                accent: q('div[style*="background:linear-gradient"]'),
+                all: uniqueElements([...direct, ...q(':scope > .glass-panel, :scope > .glass-panel .glass-panel, .language-item, .glass-panel h2, div[style*="background:linear-gradient"]')])
+            };
+        }
+
+        return {
+            title: q('.section-title'),
+            frame: q('.footer-bubble-container'),
+            primary: q('.socials'),
+            secondary: q('p'),
+            accent: q('.bubble'),
+            all: uniqueElements([...direct, ...q('.footer-bubble-container, .bubble, .socials, p')])
+        };
+    }
+
+    function animateSceneIn(timeline, section, parts, at) {
+        const ease = 'power3.out';
+
+        timeline.set(section, { autoAlpha: 1 }, at);
+
+        if (section.id === 'home') {
+            timeline.fromTo(parts.title, { autoAlpha: 0, y: 58, scale: 0.82, filter: 'blur(18px)' }, { autoAlpha: 1, y: 0, scale: 1, filter: 'blur(0px)', duration: 0.42, ease }, at);
+            timeline.fromTo(parts.primary, { autoAlpha: 0, y: 24, letterSpacing: '0.35em' }, { autoAlpha: 1, y: 0, letterSpacing: '0em', duration: 0.34, ease: 'power2.out' }, at + 0.10);
+            timeline.fromTo(parts.secondary, { autoAlpha: 0, y: 38, scale: 0.92 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.34, ease: 'back.out(1.7)' }, at + 0.20);
+            return;
+        }
+
+        if (section.id === 'current') {
+            timeline.fromTo(parts.title, { autoAlpha: 0, x: -120, skewX: -10, filter: 'blur(10px)' }, { autoAlpha: 1, x: 0, skewX: 0, filter: 'blur(0px)', duration: 0.32, ease }, at);
+            timeline.fromTo(parts.frame, { autoAlpha: 0, y: 34, scale: 0.965 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.32, ease }, at + 0.04);
+            timeline.fromTo(parts.primary, { autoAlpha: 0, x: -70, y: 18 }, { autoAlpha: 1, x: 0, y: 0, duration: 0.36, stagger: 0.035, ease }, at + 0.10);
+            timeline.fromTo(parts.secondary, { autoAlpha: 0, y: 28, scale: 0.72 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.28, stagger: 0.03, ease: 'back.out(1.9)' }, at + 0.18);
+            timeline.fromTo(parts.accent, { autoAlpha: 0, x: 120, rotationY: -22, scale: 0.9, filter: 'blur(12px)' }, { autoAlpha: 1, x: 0, rotationY: 0, scale: 1, filter: 'blur(0px)', duration: 0.42, stagger: 0.035, ease }, at + 0.16);
+            return;
+        }
+
+        if (section.id === 'about') {
+            timeline.fromTo(parts.title, { autoAlpha: 0, y: -54, clipPath: 'inset(0 100% 0 0)' }, { autoAlpha: 1, y: 0, clipPath: 'inset(0 0% 0 0)', duration: 0.36, ease }, at);
+            timeline.fromTo(parts.primary, { autoAlpha: 0, scale: 0.9, rotationZ: -3, filter: 'blur(14px)' }, { autoAlpha: 1, scale: 1, rotationZ: 0, filter: 'blur(0px)', duration: 0.38, ease: 'back.out(1.4)' }, at + 0.10);
+            timeline.fromTo(parts.secondary, { autoAlpha: 0, x: (index) => index % 2 ? 42 : -42 }, { autoAlpha: 1, x: 0, duration: 0.30, stagger: 0.04, ease: 'power2.out' }, at + 0.18);
+            return;
+        }
+
+        if (section.id === 'experience') {
+            timeline.fromTo(parts.title, { autoAlpha: 0, x: 90, filter: 'blur(16px)' }, { autoAlpha: 1, x: 0, filter: 'blur(0px)', duration: 0.34, ease }, at);
+            timeline.fromTo(parts.primary, { autoAlpha: 0, y: 120, rotationX: 18, transformPerspective: 900, filter: 'blur(16px)' }, { autoAlpha: 1, y: 0, rotationX: 0, filter: 'blur(0px)', duration: 0.44, stagger: 0.075, ease: 'power3.out' }, at + 0.08);
+            timeline.fromTo(parts.secondary, { autoAlpha: 0, y: 18 }, { autoAlpha: 1, y: 0, duration: 0.28, stagger: 0.035, ease: 'power2.out' }, at + 0.22);
+            return;
+        }
+
+        if (section.id === 'projects') {
+            timeline.fromTo(parts.title, { autoAlpha: 0, y: -70, scaleX: 1.35, filter: 'blur(14px)' }, { autoAlpha: 1, y: 0, scaleX: 1, filter: 'blur(0px)', duration: 0.34, ease }, at);
+            timeline.fromTo(parts.frame, { autoAlpha: 0, y: 36, scale: 0.97 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.30, stagger: 0.045, ease }, at + 0.06);
+            timeline.fromTo(parts.primary, { autoAlpha: 0, y: -34, rotationZ: -4 }, { autoAlpha: 1, y: 0, rotationZ: 0, duration: 0.30, stagger: 0.035, ease: 'back.out(1.5)' }, at + 0.10);
+            timeline.fromTo(parts.secondary, { autoAlpha: 0, scale: 0.35, y: 18 }, { autoAlpha: 1, scale: 1, y: 0, duration: 0.25, stagger: 0.025, ease: 'back.out(2)' }, at + 0.18);
+            timeline.fromTo(parts.accent, { autoAlpha: 0, x: 160, rotationY: 18, transformPerspective: 1000, filter: 'blur(18px)' }, { autoAlpha: 1, x: 0, rotationY: 0, filter: 'blur(0px)', duration: 0.44, ease: 'power3.out' }, at + 0.24);
+            return;
+        }
+
+        if (section.id === 'skills') {
+            timeline.fromTo(parts.title, { autoAlpha: 0, scale: 1.3, y: -36, filter: 'blur(18px)' }, { autoAlpha: 1, scale: 1, y: 0, filter: 'blur(0px)', duration: 0.34, ease }, at);
+            timeline.fromTo(parts.primary, { autoAlpha: 0, y: 78, rotationY: -16, transformPerspective: 1200, filter: 'blur(14px)' }, { autoAlpha: 1, y: 0, rotationY: 0, filter: 'blur(0px)', duration: 0.38, stagger: 0.055, ease }, at + 0.08);
+            timeline.fromTo(parts.secondary, { autoAlpha: 0, scale: 0.86, y: 28 }, { autoAlpha: 1, scale: 1, y: 0, duration: 0.30, stagger: 0.035, ease: 'power2.out' }, at + 0.18);
+            timeline.fromTo(parts.accent, { scaleX: 0, transformOrigin: 'left center' }, { scaleX: 1, duration: 0.36, stagger: 0.025, ease: 'power2.out' }, at + 0.28);
+            return;
+        }
+
+        timeline.fromTo(parts.frame, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.18, ease: 'none' }, at);
+        timeline.fromTo(parts.accent, { autoAlpha: 0, scale: 0.25, y: 90, filter: 'blur(20px)' }, { autoAlpha: 1, scale: 1, y: 0, filter: 'blur(0px)', duration: 0.52, stagger: 0.05, ease: 'elastic.out(1, 0.7)' }, at);
+        timeline.fromTo(parts.primary, { autoAlpha: 0, scale: 0.2, rotationZ: -24 }, { autoAlpha: 1, scale: 1, rotationZ: 0, duration: 0.42, ease: 'back.out(2.2)' }, at + 0.16);
+        timeline.fromTo(parts.secondary, { autoAlpha: 0, y: 30, letterSpacing: '0.22em' }, { autoAlpha: 1, y: 0, letterSpacing: '0em', duration: 0.30, ease: 'power2.out' }, at + 0.28);
+    }
+
+    function animateSceneOut(timeline, section, parts, at) {
+        if (section.id === 'home') {
+            timeline.to(parts.title, { autoAlpha: 0, y: -120, scale: 1.18, filter: 'blur(18px)', duration: 0.30, ease: 'power2.in' }, at);
+            timeline.to(parts.primary, { autoAlpha: 0, x: -110, filter: 'blur(12px)', duration: 0.24, ease: 'power2.in' }, at + 0.04);
+            timeline.to(parts.secondary, { autoAlpha: 0, y: 70, scale: 0.86, duration: 0.24, ease: 'power2.in' }, at + 0.08);
+        } else if (section.id === 'current') {
+            timeline.to(parts.title, { autoAlpha: 0, x: 110, skewX: 8, duration: 0.24, ease: 'power2.in' }, at);
+            timeline.to(parts.primary, { autoAlpha: 0, x: -90, duration: 0.24, stagger: 0.02, ease: 'power2.in' }, at + 0.02);
+            timeline.to(parts.secondary, { autoAlpha: 0, y: -38, scale: 0.7, duration: 0.20, stagger: 0.018, ease: 'power2.in' }, at + 0.04);
+            timeline.to(parts.accent, { autoAlpha: 0, x: 150, rotationY: 24, filter: 'blur(14px)', duration: 0.28, ease: 'power2.in' }, at + 0.04);
+        } else if (section.id === 'about') {
+            timeline.to(parts.secondary, { autoAlpha: 0, x: (index) => index % 2 ? -70 : 70, duration: 0.24, stagger: 0.025, ease: 'power2.in' }, at);
+            timeline.to(parts.primary, { autoAlpha: 0, scale: 0.86, rotationZ: 4, filter: 'blur(14px)', duration: 0.28, ease: 'power2.in' }, at + 0.04);
+            timeline.to(parts.title, { autoAlpha: 0, clipPath: 'inset(0 0 0 100%)', duration: 0.24, ease: 'power2.in' }, at + 0.06);
+        } else if (section.id === 'experience') {
+            timeline.to(parts.secondary, { autoAlpha: 0, y: -20, duration: 0.20, stagger: 0.02, ease: 'power2.in' }, at);
+            timeline.to(parts.primary, { autoAlpha: 0, x: (index) => index % 2 ? 130 : -130, rotationZ: (index) => index % 2 ? 3 : -3, filter: 'blur(14px)', duration: 0.32, stagger: 0.035, ease: 'power2.in' }, at + 0.03);
+            timeline.to(parts.title, { autoAlpha: 0, x: -100, filter: 'blur(14px)', duration: 0.22, ease: 'power2.in' }, at + 0.06);
+        } else if (section.id === 'projects') {
+            timeline.to(parts.primary, { autoAlpha: 0, y: -42, rotationZ: 5, duration: 0.22, stagger: 0.02, ease: 'power2.in' }, at);
+            timeline.to(parts.secondary, { autoAlpha: 0, scale: 0.25, duration: 0.20, stagger: 0.02, ease: 'power2.in' }, at + 0.03);
+            timeline.to(parts.accent, { autoAlpha: 0, y: 120, scale: 0.9, filter: 'blur(18px)', duration: 0.30, ease: 'power2.in' }, at + 0.05);
+            timeline.to(parts.title, { autoAlpha: 0, y: 70, scaleX: 0.7, duration: 0.22, ease: 'power2.in' }, at + 0.08);
+        } else if (section.id === 'skills') {
+            timeline.to(parts.accent, { scaleX: 0, transformOrigin: 'right center', duration: 0.20, stagger: 0.018, ease: 'power2.in' }, at);
+            timeline.to(parts.secondary, { autoAlpha: 0, y: -46, scale: 0.9, duration: 0.22, stagger: 0.02, ease: 'power2.in' }, at + 0.02);
+            timeline.to(parts.primary, { autoAlpha: 0, y: -92, rotationY: 14, filter: 'blur(16px)', duration: 0.30, stagger: 0.035, ease: 'power2.in' }, at + 0.04);
+            timeline.to(parts.title, { autoAlpha: 0, scale: 0.72, filter: 'blur(18px)', duration: 0.24, ease: 'power2.in' }, at + 0.08);
         } else {
-            sceneTimeline.fromTo(targets, {
-                autoAlpha: 0,
-                y: 42,
-                scale: 0.985
-            }, {
-                autoAlpha: 1,
-                y: 0,
-                scale: 1,
-                duration: 0.28,
-                stagger: { amount: 0.08 },
-                overwrite: 'auto'
-            }, 0);
+            timeline.to(parts.accent, { autoAlpha: 0, scale: 1.45, y: -70, filter: 'blur(18px)', duration: 0.28, stagger: 0.025, ease: 'power2.in' }, at);
+            timeline.to(parts.primary, { autoAlpha: 0, scale: 0.25, rotationZ: 20, duration: 0.24, ease: 'power2.in' }, at + 0.04);
+            timeline.to(parts.secondary, { autoAlpha: 0, y: -26, duration: 0.18, ease: 'power2.in' }, at + 0.08);
         }
 
-        if (sectionIndex < sections.length - 1) {
-            sceneTimeline.to(targets, {
-                autoAlpha: 0.42,
-                y: -28,
-                scale: 0.99,
-                duration: 0.22,
-                stagger: { amount: 0.04 },
-                overwrite: 'auto'
-            }, 0.78);
-        }
+        timeline.to(section, { autoAlpha: 0, duration: 0.20, ease: 'none' }, at + 0.22);
+    }
 
-        ScrollTrigger.create({
-            trigger: section,
-            start: 'top center',
-            end: 'bottom center',
-            onEnter: () => {
-                setActiveSection(section.id);
-                setBackground(sectionIndex);
-            },
-            onEnterBack: () => {
-                setActiveSection(section.id);
-                setBackground(sectionIndex);
-            }
+    const sectionParts = sections.map(sceneParts);
+    sections.forEach((section, sectionIndex) => {
+        const parts = sectionParts[sectionIndex];
+        gsap.set(section, {
+            autoAlpha: sectionIndex === 0 ? 1 : 0,
+            pointerEvents: sectionIndex === 0 ? 'auto' : 'none',
+            zIndex: 20 + sectionIndex
         });
-
-        if (['home', 'current', 'about'].includes(section.id)) {
-            ScrollTrigger.create({
-                trigger: section,
-                start: 'top top',
-                end: '+=42%',
-                pin: true,
-                pinSpacing: true,
-                anticipatePin: 1
-            });
+        gsap.set(parts.all, { autoAlpha: 0, force3D: true });
+        if (sectionIndex === 0) {
+            gsap.set(parts.all, { autoAlpha: 1, x: 0, y: 0, scale: 1, rotationZ: 0, rotationX: 0, rotationY: 0, filter: 'blur(0px)' });
         }
     });
 
-    if (scrollSequence) {
-        ScrollTrigger.create({
-            start: 0,
-            end: () => ScrollTrigger.maxScroll(window),
-            onUpdate: () => queueScrollSequenceUpdate(),
-            onRefresh: () => queueScrollSequenceUpdate(true)
+    const sceneStep = 1;
+    const sceneHold = 0.68;
+    const sceneExit = 0.74;
+    let activeSceneId = sections[0]?.id;
+
+    function syncActiveScene() {
+        let visibleSection = sections[0];
+        let visibleOpacity = -1;
+
+        sections.forEach((section) => {
+            const opacity = Number(gsap.getProperty(section, 'opacity')) || 0;
+            if (opacity >= visibleOpacity) {
+                visibleOpacity = opacity;
+                visibleSection = section;
+            }
         });
-        queueScrollSequenceUpdate(true);
+
+        if (visibleSection?.id && visibleSection.id !== activeSceneId) {
+            activeSceneId = visibleSection.id;
+            setActiveSection(activeSceneId);
+        }
     }
+
+    const masterTimeline = gsap.timeline({
+        defaults: { ease: 'none' },
+        scrollTrigger: {
+            trigger: root,
+            start: 'top top',
+            end: () => `+=${Math.max(getViewportHeight() * (sections.length + 0.65), sections.length * 760)}`,
+            pin: true,
+            scrub: 0.72,
+            anticipatePin: 1,
+            invalidateOnRefresh: true,
+            onUpdate: (self) => {
+                scrollSequence?.renderProgress(self.progress);
+            },
+            onRefresh: () => queueScrollSequenceUpdate(true)
+        }
+    });
+    storyTrigger = masterTimeline.scrollTrigger;
+
+    sections.forEach((section, sectionIndex) => {
+        const at = sectionIndex * sceneStep;
+        const parts = sectionParts[sectionIndex];
+        masterTimeline.addLabel(section.id, at);
+        masterTimeline.addLabel(`${section.id}-view`, at + (sectionIndex === 0 ? 0.22 : 0.62));
+
+        animateSceneIn(masterTimeline, section, parts, at);
+        if (sectionIndex < sections.length - 1) {
+            animateSceneOut(masterTimeline, section, parts, at + sceneExit);
+        } else {
+            masterTimeline.to({}, { duration: sceneHold }, at + sceneHold);
+        }
+    });
+
+    masterTimeline.eventCallback('onUpdate', syncActiveScene);
+    syncActiveScene();
+    queueScrollSequenceUpdate(true);
 
     function scrollToSection(id) {
         const target = document.getElementById(id);
         if (!target) return false;
 
-        if (lenis) {
-            lenis.scrollTo(target, { duration: 1.05, easing: (t) => 1 - Math.pow(1 - t, 3) });
+        const sectionIndex = sections.findIndex((section) => section.id === id);
+        if (storyTrigger && sectionIndex >= 0) {
+            const labelTime = masterTimeline.labels[`${id}-view`] ?? masterTimeline.labels[id] ?? sectionIndex * sceneStep;
+            const progress = masterTimeline.duration() > 0 ? labelTime / masterTimeline.duration() : 0;
+            const scrollTarget = storyTrigger.start + (storyTrigger.end - storyTrigger.start) * progress;
+
+            if (lenis) {
+                lenis.scrollTo(scrollTarget, { duration: 1.05, easing: (t) => 1 - Math.pow(1 - t, 3) });
+            } else {
+                window.scrollTo({ top: scrollTarget, behavior: 'smooth' });
+            }
         } else {
             target.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
-        setActiveSection(id);
+
         return true;
     }
 
@@ -874,11 +1163,19 @@ function initScrollStory() {
         });
     });
 
-    window.addEventListener('resize', () => {
+    let storyResizeTimer = 0;
+    function queueStoryRefresh(force = false) {
+        const viewportChanged = updateViewportVars(force);
         scrollSequence?.resize();
         queueScrollSequenceUpdate(true);
-        ScrollTrigger.refresh();
-    });
+        if (isMobileViewport && !force && !viewportChanged) return;
+
+        window.clearTimeout(storyResizeTimer);
+        storyResizeTimer = window.setTimeout(() => ScrollTrigger.refresh(), isMobileViewport ? 180 : 80);
+    }
+
+    window.addEventListener('resize', queueStoryRefresh, { passive: true });
+    window.addEventListener('orientationchange', () => window.setTimeout(() => queueStoryRefresh(true), 220), { passive: true });
     window.addEventListener('load', () => ScrollTrigger.refresh());
     setActiveSection(sections[0].id);
 
@@ -897,15 +1194,19 @@ window.addEventListener('DOMContentLoaded', () => {
 
 
 const cursor = document.getElementById('cursor');
-document.addEventListener('mousemove', e => {
-    cursor.style.left = e.clientX + 'px';
-    cursor.style.top = e.clientY + 'px';
-    cursor.classList.add('visible');
-});
-document.querySelectorAll('a, button, .glass-panel, .proj-card, i').forEach(el => {
-    el.addEventListener('mouseenter', () => cursor.classList.add('active'));
-    el.addEventListener('mouseleave', () => cursor.classList.remove('active'));
-});
+if (cursor && finePointerMedia.matches) {
+    document.addEventListener('mousemove', e => {
+        cursor.style.left = e.clientX + 'px';
+        cursor.style.top = e.clientY + 'px';
+        cursor.classList.add('visible');
+    });
+    document.querySelectorAll('a, button, .glass-panel, .proj-card, i').forEach(el => {
+        el.addEventListener('mouseenter', () => cursor.classList.add('active'));
+        el.addEventListener('mouseleave', () => cursor.classList.remove('active'));
+    });
+} else if (cursor) {
+    cursor.classList.remove('visible', 'active');
+}
 
 function playVideoCanvasSequence(canvas, options) {
     if (!canvas) return Promise.resolve();
@@ -927,8 +1228,8 @@ function playVideoCanvasSequence(canvas, options) {
 
     function resize() {
         const rect = canvas.getBoundingClientRect();
-        const cssWidth = Math.max(1, Math.round(rect.width || window.innerWidth));
-        const cssHeight = Math.max(1, Math.round(rect.height || window.innerHeight));
+        const cssWidth = Math.max(1, Math.round(rect.width || getViewportWidth()));
+        const cssHeight = Math.max(1, Math.round(rect.height || getViewportHeight()));
         const width = Math.round(cssWidth * dpr);
         const height = Math.round(cssHeight * dpr);
 
@@ -1085,11 +1386,20 @@ const ctx = canvas.getContext('2d');
 let width, height;
 const mouse = { x: -1000, y: -1000 };
 function resize() {
-    width = canvas.width = window.innerWidth;
-    height = canvas.height = window.innerHeight;
+    const nextWidth = getViewportWidth();
+    const nextHeight = getViewportHeight();
+
+    width = nextWidth;
+    height = nextHeight;
+    if (canvas.width === nextWidth && canvas.height === nextHeight) return;
+
+    canvas.width = nextWidth;
+    canvas.height = nextHeight;
 }
 window.addEventListener('resize', resize); resize();
-window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+if (finePointerMedia.matches) {
+    window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+}
 
 class Particle {
     constructor() { this.reset(); }
