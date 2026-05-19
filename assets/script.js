@@ -507,6 +507,9 @@ document.getElementById('lang-fr').addEventListener('click', () => updateLanguag
 document.getElementById('lang-en').addEventListener('click', () => updateLanguage('en'));
 
 const videoBlobUrlCache = new Map();
+const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+const shouldAvoidHeavyPreload = Boolean(connection?.saveData);
+
 function getVideoObjectUrl(source) {
     if (!window.fetch || !window.URL || !window.URL.createObjectURL) {
         return Promise.resolve(source);
@@ -526,6 +529,12 @@ function getVideoObjectUrl(source) {
     }
 
     return videoBlobUrlCache.get(source);
+}
+
+function resolveVideoSource(source, options = {}) {
+    const preferBlob = options.preferBlob ?? false;
+    if (!preferBlob || shouldAvoidHeavyPreload) return Promise.resolve(source);
+    return getVideoObjectUrl(source);
 }
 
 const finePointerMedia = window.matchMedia('(hover: hover) and (pointer: fine)');
@@ -642,37 +651,94 @@ function initScrollStory() {
     }
 
     let mobileAmbientVideo = null;
+    let mobileVideoSeekRaf = 0;
+    let mobilePlayRequested = false;
+    let mobileVideoIdleTimer = 0;
+    function scheduleMobileAmbientPause(delay = 620) {
+        window.clearTimeout(mobileVideoIdleTimer);
+        mobileVideoIdleTimer = window.setTimeout(() => {
+            if (!mobileAmbientVideo) return;
+            mobileAmbientVideo.pause();
+            mobilePlayRequested = false;
+        }, delay);
+    }
+
+    function playMobileAmbientVideo() {
+        if (!mobileAmbientVideo) return;
+        if (mobilePlayRequested) {
+            scheduleMobileAmbientPause();
+            return;
+        }
+
+        mobilePlayRequested = true;
+
+        const playPromise = mobileAmbientVideo.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+            playPromise.catch(() => {
+                mobilePlayRequested = false;
+            });
+        }
+        scheduleMobileAmbientPause();
+    }
+
+    function syncMobileAmbientVideo(progress, force = false) {
+        if (!mobileAmbientVideo || !Number.isFinite(mobileAmbientVideo.duration) || mobileAmbientVideo.duration <= 0) return;
+
+        const duration = Math.max(0.1, mobileAmbientVideo.duration - 0.08);
+        const safeProgress = Math.max(0, Math.min(1, progress || 0));
+        const targetTime = Math.max(0.02, Math.min(duration, safeProgress * duration));
+        const timeDelta = Math.abs(mobileAmbientVideo.currentTime - targetTime);
+
+        if (!force && timeDelta < 0.42) return;
+        if (mobileVideoSeekRaf) return;
+
+        mobileVideoSeekRaf = window.requestAnimationFrame(() => {
+            mobileVideoSeekRaf = 0;
+            if (!mobileAmbientVideo) return;
+
+            try {
+                mobileAmbientVideo.currentTime = targetTime;
+                if (mobileAmbientVideo.paused && targetTime < duration - 0.1) {
+                    mobilePlayRequested = false;
+                    playMobileAmbientVideo();
+                } else {
+                    scheduleMobileAmbientPause();
+                }
+            } catch (_) {
+                // Some mobile browsers ignore seeks while the video is still warming up.
+            }
+        });
+    }
+
     if (backgroundRoot && isMobileViewport && !prefersReducedMotion) {
         mobileAmbientVideo = document.createElement('video');
         mobileAmbientVideo.id = 'story-sequence-video';
         mobileAmbientVideo.setAttribute('aria-hidden', 'true');
         mobileAmbientVideo.muted = true;
-        mobileAmbientVideo.loop = true;
+        mobileAmbientVideo.loop = false;
         mobileAmbientVideo.playsInline = true;
         mobileAmbientVideo.preload = 'auto';
-        mobileAmbientVideo.playbackRate = 0.82;
+        mobileAmbientVideo.playbackRate = 0.62;
         mobileAmbientVideo.disableRemotePlayback = true;
         mobileAmbientVideo.setAttribute('muted', '');
         mobileAmbientVideo.setAttribute('playsinline', '');
         backgroundRoot.appendChild(mobileAmbientVideo);
 
-        const playMobileAmbientVideo = () => {
-            if (!mobileAmbientVideo) return;
-            const playPromise = mobileAmbientVideo.play();
-            if (playPromise && typeof playPromise.catch === 'function') {
-                playPromise.catch(() => {});
-            }
-        };
-
         mobileAmbientVideo.addEventListener('canplay', () => {
             backgroundRoot.classList.add('mobile-ambient-ready', 'sequence-ready');
-            playMobileAmbientVideo();
+            syncMobileAmbientVideo(0, true);
         }, { once: true });
+        mobileAmbientVideo.addEventListener('ended', () => {
+            mobilePlayRequested = false;
+            try {
+                mobileAmbientVideo.currentTime = Math.max(0, mobileAmbientVideo.duration - 0.08);
+            } catch (_) {}
+        });
 
         document.getElementById('start-btn')?.addEventListener('click', playMobileAmbientVideo, { once: true });
         window.addEventListener('touchstart', playMobileAmbientVideo, { once: true, passive: true });
 
-        getVideoObjectUrl('assets/scroll-sequence-1080p.mp4').then((videoSource) => {
+        resolveVideoSource('assets/scroll-sequence-1080p.mp4', { preferBlob: false }).then((videoSource) => {
             if (!mobileAmbientVideo) return;
             mobileAmbientVideo.src = videoSource;
             mobileAmbientVideo.load();
@@ -772,7 +838,7 @@ function initScrollStory() {
         });
 
         resize();
-        getVideoObjectUrl(source).then((videoSource) => {
+        resolveVideoSource(source, { preferBlob: true }).then((videoSource) => {
             video.src = videoSource;
             video.load();
         });
@@ -837,7 +903,7 @@ function initScrollStory() {
     }
 
     let lenis = null;
-    if (window.Lenis) {
+    if (window.Lenis && !isMobileViewport) {
         lenis = new window.Lenis({
             lerp: 0.085,
             smoothWheel: true,
@@ -884,6 +950,149 @@ function initScrollStory() {
         window.addEventListener('scroll', () => queueScrollSequenceUpdate(), { passive: true });
         lenis?.on('scroll', () => queueScrollSequenceUpdate());
         gsap.ticker.add(() => queueScrollSequenceUpdate());
+    }
+
+    if (isMobileViewport) {
+        const mobileRevealSelectors = [
+            '.gsap-reveal',
+            '.section-title',
+            '.hero-glitch',
+            '.typewriter-box',
+            '.home-cta',
+            '.glass-panel',
+            '.project-hero',
+            '.project-details h2',
+            '.project-details h4',
+            '.project-details p',
+            '.tech-badge',
+            '.project-image-container',
+            '.status-indicator',
+            '.project-img-placeholder',
+            '.proj-tabs',
+            '.proj-tab',
+            '.carousel-counter',
+            '.carousel-outer',
+            '.footer-bubble-container',
+            '.socials',
+            '.bubble'
+        ].join(', ');
+        let activeMobileIndex = -1;
+
+        sections.forEach((section, sectionIndex) => {
+            const mobileItems = Array.from(section.querySelectorAll(mobileRevealSelectors));
+            gsap.set(section, {
+                autoAlpha: sectionIndex === 0 ? 1 : 0,
+                pointerEvents: sectionIndex === 0 ? 'auto' : 'none',
+                zIndex: 20 + sectionIndex,
+                x: 0,
+                y: 0,
+                scale: 1,
+                rotationX: 0,
+                rotationY: 0,
+                rotationZ: 0,
+                skewX: 0,
+                filter: 'blur(0px)'
+            });
+            gsap.set(mobileItems, {
+                autoAlpha: 1,
+                x: 0,
+                y: 0,
+                scale: 1,
+                rotationX: 0,
+                rotationY: 0,
+                rotationZ: 0,
+                skewX: 0,
+                filter: 'blur(0px)',
+                clearProps: 'clipPath,letterSpacing'
+            });
+        });
+
+        function setMobileScene(index, progress = 0) {
+            const safeIndex = Math.max(0, Math.min(sections.length - 1, index));
+            if (safeIndex === activeMobileIndex) {
+                syncMobileAmbientVideo(progress);
+                return;
+            }
+
+            activeMobileIndex = safeIndex;
+            sections.forEach((section, sectionIndex) => {
+                const isActive = sectionIndex === safeIndex;
+                gsap.set(section, {
+                    autoAlpha: isActive ? 1 : 0,
+                    pointerEvents: isActive ? 'auto' : 'none',
+                    zIndex: isActive ? 100 : 20 + sectionIndex,
+                    x: 0,
+                    y: 0,
+                    scale: 1,
+                    filter: 'blur(0px)'
+                });
+            });
+            setActiveSection(sections[safeIndex].id);
+            syncMobileAmbientVideo(progress, true);
+        }
+
+        storyTrigger = ScrollTrigger.create({
+            trigger: root,
+            start: 'top top',
+            end: () => `+=${Math.max(getViewportHeight() * sections.length, sections.length * 720)}`,
+            pin: true,
+            scrub: false,
+            anticipatePin: 0,
+            invalidateOnRefresh: false,
+            onUpdate: (self) => {
+                const index = Math.min(sections.length - 1, Math.max(0, Math.round(self.progress * (sections.length - 1))));
+                setMobileScene(index, self.progress);
+            },
+            onRefresh: (self) => {
+                const index = Math.min(sections.length - 1, Math.max(0, Math.round(self.progress * (sections.length - 1))));
+                setMobileScene(index, self.progress);
+            }
+        });
+
+        function scrollToMobileSection(id) {
+            const sectionIndex = sections.findIndex((section) => section.id === id);
+            if (!storyTrigger || sectionIndex < 0) return false;
+
+            const progress = sections.length <= 1 ? 0 : sectionIndex / (sections.length - 1);
+            const scrollTarget = storyTrigger.start + (storyTrigger.end - storyTrigger.start) * progress;
+            window.scrollTo({ top: scrollTarget, behavior: 'smooth' });
+            history.replaceState(null, '', `#${id}`);
+            return true;
+        }
+
+        document.querySelectorAll('a[href^="#"]').forEach((link) => {
+            link.addEventListener('click', (event) => {
+                const id = link.getAttribute('href').slice(1);
+                if (scrollToMobileSection(id)) {
+                    event.preventDefault();
+                }
+            });
+        });
+
+        let mobileRefreshTimer = 0;
+        function queueMobileStoryRefresh(force = false) {
+            const viewportChanged = updateViewportVars(force);
+            if (!force && !viewportChanged) return;
+
+            window.clearTimeout(mobileRefreshTimer);
+            mobileRefreshTimer = window.setTimeout(() => {
+                ScrollTrigger.refresh();
+                syncMobileAmbientVideo(storyTrigger?.progress || 0, true);
+            }, 220);
+        }
+
+        window.addEventListener('resize', queueMobileStoryRefresh, { passive: true });
+        window.addEventListener('orientationchange', () => window.setTimeout(() => queueMobileStoryRefresh(true), 260), { passive: true });
+        window.addEventListener('load', () => {
+            ScrollTrigger.refresh();
+            setMobileScene(0, 0);
+        });
+        setMobileScene(0, 0);
+
+        if (window.location.hash) {
+            window.setTimeout(() => scrollToMobileSection(window.location.hash.slice(1)), 140);
+        }
+        return;
     }
 
     function uniqueElements(items) {
@@ -1313,7 +1522,7 @@ function playVideoCanvasSequence(canvas, options) {
             if (raf) window.cancelAnimationFrame(raf);
             resolve();
         }, { once: true });
-        getVideoObjectUrl(options.src).then((videoSource) => {
+        resolveVideoSource(options.src, { preferBlob: options.preferBlob ?? false }).then((videoSource) => {
             video.src = videoSource;
             video.load();
         });
@@ -1382,67 +1591,88 @@ setTimeout(() => typeWriter(window.words[0], 0), 2000);
 
 
 const canvas = document.getElementById('matrix-canvas');
-const ctx = canvas.getContext('2d');
-let width, height;
-const mouse = { x: -1000, y: -1000 };
-function resize() {
-    const nextWidth = getViewportWidth();
-    const nextHeight = getViewportHeight();
+const matrixCanAnimate = Boolean(canvas && finePointerMedia.matches && !mobileViewportMedia.matches && !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
-    width = nextWidth;
-    height = nextHeight;
-    if (canvas.width === nextWidth && canvas.height === nextHeight) return;
+if (matrixCanAnimate) {
+    const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
+    let width, height;
+    let matrixRaf = 0;
+    const mouse = { x: -1000, y: -1000 };
 
-    canvas.width = nextWidth;
-    canvas.height = nextHeight;
-}
-window.addEventListener('resize', resize); resize();
-if (finePointerMedia.matches) {
+    function resize() {
+        const nextWidth = getViewportWidth();
+        const nextHeight = getViewportHeight();
+
+        width = nextWidth;
+        height = nextHeight;
+        if (canvas.width === nextWidth && canvas.height === nextHeight) return;
+
+        canvas.width = nextWidth;
+        canvas.height = nextHeight;
+    }
+
+    window.addEventListener('resize', resize, { passive: true });
+    resize();
     window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
-}
 
-class Particle {
-    constructor() { this.reset(); }
-    reset() {
-        this.x = Math.random() * width; this.y = Math.random() * height;
-        this.val = Math.random() > 0.5 ? '1' : '0';
-        this.size = Math.random() * 10 + 8;
-        this.vx = (Math.random() - 0.5) * 0.5; this.vy = (Math.random() - 0.5) * 0.5;
-    }
-    update() {
-        const dx = mouse.x - this.x, dy = mouse.y - this.y;
-        const distSq = dx*dx + dy*dy, forceRadius = 25000;
-        if (distSq < forceRadius) {
-            const force = (forceRadius - distSq) / forceRadius;
-            const angle = Math.atan2(dy, dx);
-            this.vx += Math.cos(angle) * force * 0.8;
-            this.vy += Math.sin(angle) * force * 0.8;
-        } else {
-            if (Math.abs(this.vx) > 1) this.vx *= 0.95;
-            if (Math.abs(this.vy) > 1) this.vy *= 0.95;
+    class Particle {
+        constructor() { this.reset(); }
+        reset() {
+            this.x = Math.random() * width; this.y = Math.random() * height;
+            this.val = Math.random() > 0.5 ? '1' : '0';
+            this.size = Math.random() * 10 + 8;
+            this.vx = (Math.random() - 0.5) * 0.5; this.vy = (Math.random() - 0.5) * 0.5;
         }
-        this.x += this.vx; this.y += this.vy;
-        if (this.x < 0) this.x = width; if (this.x > width) this.x = 0;
-        if (this.y < 0) this.y = height; if (this.y > height) this.y = 0;
-        if (Math.random() < 0.02) this.val = Math.random() > 0.5 ? '1' : '0';
+        update() {
+            const dx = mouse.x - this.x, dy = mouse.y - this.y;
+            const distSq = dx*dx + dy*dy, forceRadius = 25000;
+            if (distSq < forceRadius) {
+                const force = (forceRadius - distSq) / forceRadius;
+                const angle = Math.atan2(dy, dx);
+                this.vx += Math.cos(angle) * force * 0.8;
+                this.vy += Math.sin(angle) * force * 0.8;
+            } else {
+                if (Math.abs(this.vx) > 1) this.vx *= 0.95;
+                if (Math.abs(this.vy) > 1) this.vy *= 0.95;
+            }
+            this.x += this.vx; this.y += this.vy;
+            if (this.x < 0) this.x = width; if (this.x > width) this.x = 0;
+            if (this.y < 0) this.y = height; if (this.y > height) this.y = 0;
+            if (Math.random() < 0.02) this.val = Math.random() > 0.5 ? '1' : '0';
+        }
+        draw() {
+            ctx.font = `${this.size}px monospace`;
+            const dx = mouse.x - this.x, dy = mouse.y - this.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            ctx.fillStyle = dist < 150 ? `rgba(255,255,255,${1 - dist/150})` : (Math.random() > 0.9 ? '#fff' : 'rgba(0,247,255,0.3)');
+            ctx.fillText(this.val, this.x, this.y);
+        }
     }
-    draw() {
-        ctx.font = `${this.size}px monospace`;
-        const dx = mouse.x - this.x, dy = mouse.y - this.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        ctx.fillStyle = dist < 150 ? `rgba(255,255,255,${1 - dist/150})` : (Math.random() > 0.9 ? '#fff' : 'rgba(0,247,255,0.3)');
-        ctx.fillText(this.val, this.x, this.y);
+
+    const particles = [];
+    const particleCount = Math.min(150, Math.max(70, Math.round(getViewportWidth() / 10)));
+    for (let k = 0; k < particleCount; k++) particles.push(new Particle());
+
+    function animateMatrix() {
+        if (document.hidden) {
+            matrixRaf = 0;
+            return;
+        }
+        ctx.fillStyle = 'rgba(5,5,5,0.2)';
+        ctx.fillRect(0, 0, width, height);
+        particles.forEach(p => { p.update(); p.draw(); });
+        matrixRaf = requestAnimationFrame(animateMatrix);
     }
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && !matrixRaf) {
+            animateMatrix();
+        }
+    });
+    animateMatrix();
+} else if (canvas) {
+    canvas.setAttribute('hidden', '');
 }
-const particles = [];
-for (let k = 0; k < 150; k++) particles.push(new Particle());
-function animateMatrix() {
-    ctx.fillStyle = 'rgba(5,5,5,0.2)';
-    ctx.fillRect(0, 0, width, height);
-    particles.forEach(p => { p.update(); p.draw(); });
-    requestAnimationFrame(animateMatrix);
-}
-animateMatrix();
 
 
 })();
