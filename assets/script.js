@@ -651,34 +651,36 @@ function initScrollStory() {
     }
 
     let mobileAmbientVideo = null;
-    let mobileVideoSeekRaf = 0;
-    let mobilePlayRequested = false;
-    let mobileVideoIdleTimer = 0;
-    function scheduleMobileAmbientPause(delay = 620) {
-        window.clearTimeout(mobileVideoIdleTimer);
-        mobileVideoIdleTimer = window.setTimeout(() => {
-            if (!mobileAmbientVideo) return;
-            mobileAmbientVideo.pause();
-            mobilePlayRequested = false;
-        }, delay);
-    }
+    let mobileSeeking = false;
+    let mobilePendingTime = 0;
 
-    function playMobileAmbientVideo() {
-        if (!mobileAmbientVideo) return;
-        if (mobilePlayRequested) {
-            scheduleMobileAmbientPause();
+    function seekMobileVideo(time) {
+        if (!mobileAmbientVideo || !Number.isFinite(mobileAmbientVideo.duration) || mobileAmbientVideo.duration <= 0) return;
+        if (mobileSeeking) return;
+
+        const duration = Math.max(0.1, mobileAmbientVideo.duration - 0.08);
+        const targetTime = Math.max(0.02, Math.min(duration, time));
+
+        if (Math.abs(mobileAmbientVideo.currentTime - targetTime) < 0.02) {
             return;
         }
 
-        mobilePlayRequested = true;
-
-        const playPromise = mobileAmbientVideo.play();
-        if (playPromise && typeof playPromise.catch === 'function') {
-            playPromise.catch(() => {
-                mobilePlayRequested = false;
-            });
+        mobileSeeking = true;
+        try {
+            mobileAmbientVideo.currentTime = targetTime;
+        } catch (_) {
+            mobileSeeking = false;
         }
-        scheduleMobileAmbientPause();
+    }
+
+    function warmUpMobileVideo() {
+        if (!mobileAmbientVideo) return;
+        const playPromise = mobileAmbientVideo.play();
+        if (playPromise && typeof playPromise.then === 'function') {
+            playPromise.then(() => {
+                mobileAmbientVideo.pause();
+            }).catch(() => {});
+        }
     }
 
     function syncMobileAmbientVideo(progress, force = false) {
@@ -686,28 +688,9 @@ function initScrollStory() {
 
         const duration = Math.max(0.1, mobileAmbientVideo.duration - 0.08);
         const safeProgress = Math.max(0, Math.min(1, progress || 0));
-        const targetTime = Math.max(0.02, Math.min(duration, safeProgress * duration));
-        const timeDelta = Math.abs(mobileAmbientVideo.currentTime - targetTime);
+        mobilePendingTime = Math.max(0.02, Math.min(duration, safeProgress * duration));
 
-        if (!force && timeDelta < 0.42) return;
-        if (mobileVideoSeekRaf) return;
-
-        mobileVideoSeekRaf = window.requestAnimationFrame(() => {
-            mobileVideoSeekRaf = 0;
-            if (!mobileAmbientVideo) return;
-
-            try {
-                mobileAmbientVideo.currentTime = targetTime;
-                if (mobileAmbientVideo.paused && targetTime < duration - 0.1) {
-                    mobilePlayRequested = false;
-                    playMobileAmbientVideo();
-                } else {
-                    scheduleMobileAmbientPause();
-                }
-            } catch (_) {
-                // Some mobile browsers ignore seeks while the video is still warming up.
-            }
-        });
+        seekMobileVideo(mobilePendingTime);
     }
 
     if (backgroundRoot && isMobileViewport && !prefersReducedMotion) {
@@ -729,14 +712,22 @@ function initScrollStory() {
             syncMobileAmbientVideo(0, true);
         }, { once: true });
         mobileAmbientVideo.addEventListener('ended', () => {
-            mobilePlayRequested = false;
+            mobileSeeking = false;
             try {
                 mobileAmbientVideo.currentTime = Math.max(0, mobileAmbientVideo.duration - 0.08);
             } catch (_) {}
         });
 
-        document.getElementById('start-btn')?.addEventListener('click', playMobileAmbientVideo, { once: true });
-        window.addEventListener('touchstart', playMobileAmbientVideo, { once: true, passive: true });
+        mobileAmbientVideo.addEventListener('seeked', () => {
+            mobileSeeking = false;
+            const duration = Math.max(0.1, mobileAmbientVideo.duration - 0.08);
+            if (Math.abs(mobileAmbientVideo.currentTime - mobilePendingTime) >= 0.02) {
+                seekMobileVideo(mobilePendingTime);
+            }
+        });
+
+        document.getElementById('start-btn')?.addEventListener('click', warmUpMobileVideo, { once: true });
+        window.addEventListener('touchstart', warmUpMobileVideo, { once: true, passive: true });
 
         resolveVideoSource('assets/scroll-sequence-1080p.mp4', { preferBlob: false }).then((videoSource) => {
             if (!mobileAmbientVideo) return;
@@ -811,7 +802,7 @@ function initScrollStory() {
             if (!ready || !Number.isFinite(video.duration) || !video.duration) return;
             if (seeking) return;
 
-            if (Math.abs(video.currentTime - pendingTime) < 1 / 120) {
+            if (Math.abs(video.currentTime - pendingTime) < 0.02) {
                 requestDraw();
                 return;
             }
@@ -832,7 +823,7 @@ function initScrollStory() {
         video.addEventListener('seeked', () => {
             seeking = false;
             requestDraw(true);
-            if (Math.abs(video.currentTime - pendingTime) >= 1 / 120) {
+            if (Math.abs(video.currentTime - pendingTime) >= 0.02) {
                 seekTo(pendingTime);
             }
         });
@@ -946,11 +937,7 @@ function initScrollStory() {
         });
     }
 
-    if (scrollSequence) {
-        window.addEventListener('scroll', () => queueScrollSequenceUpdate(), { passive: true });
-        lenis?.on('scroll', () => queueScrollSequenceUpdate());
-        gsap.ticker.add(() => queueScrollSequenceUpdate());
-    }
+    // Scroll sequence is fully controlled and synced by ScrollTrigger's onUpdate loop
 
     if (isMobileViewport) {
         const mobileRevealSelectors = [
